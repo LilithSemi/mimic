@@ -1,0 +1,24 @@
+name: mimic
+description: Mimic SD cards for SBCs, FPGAs, and DUTs.
+version: 0.0.1
+publish_to: none
+# repository: https://github.com/my_org/my_repo
+
+environment:
+  sdk: ^3.13.0
+
+# Add regular dependencies here.
+dependencies:
+  args: ^2.7.0
+  harbor:
+    git:
+      url: https://git.lilithsemi.com/LilithSemi/harbor
+      path: packages/harbor
+      ref: master
+  rohd: ^0.6.8
+  rohd_hcl: ^0.2.1
+  rohd_bridge: ^0.2.2
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6
