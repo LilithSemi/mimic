@@ -401,6 +401,9 @@ class MimicGenIpConfig {
   /// Overrides [boardName] when set.
   final String? targetSpec;
 
+  /// Root directory of the PDK used by an ASIC target.
+  final String? pdkRoot;
+
   /// `name=site` pin specs. Each one replaces the board catalog entry of the
   /// same name and leaves the others alone.
   final List<String> pinSpecs;
@@ -463,6 +466,7 @@ class MimicGenIpConfig {
     this.name = 'MimicSoC',
     this.boardName,
     this.targetSpec,
+    this.pdkRoot,
     this.pinSpecs = const [],
     this.oscHz,
     this.transport = 'usb',
@@ -519,12 +523,49 @@ class MimicGenIpConfig {
 
   /// The build target: the `--target` escape hatch when set, else the board
   /// catalog entry, with the `--pin` overrides merged in.
-  HarborFpgaTarget buildTarget() => resolveMimicTarget(
-    board: boardName,
-    targetSpec: targetSpec,
-    pinSpecs: pinSpecs,
-    oscHz: oscHz,
-  );
+  HarborDeviceTarget buildTarget() {
+    final spec = targetSpec;
+    if (spec == null || spec.split(':').length == 3) {
+      return resolveMimicTarget(
+        board: boardName,
+        targetSpec: spec,
+        pinSpecs: pinSpecs,
+        oscHz: oscHz,
+      );
+    }
+
+    final parts = spec.split(':');
+    if (parts.length != 2) {
+      throw FormatException(
+        'Target format is vendor:device:package for an FPGA or pdk:variant '
+        'for an ASIC, got: $spec',
+      );
+    }
+    final root = pdkRoot;
+    if (root == null) {
+      throw ArgumentError('ASIC target $spec requires --pdk-root.');
+    }
+    final provider = switch ((parts[0], parts[1])) {
+      ('sky130', 'hd') => Sky130Provider(
+        pdkRoot: root,
+        variant: Sky130Variant.hd,
+      ),
+      ('gf180mcu', '3v3') => Gf180mcuProvider(
+        pdkRoot: root,
+        voltage: Gf180mcuVoltage.v3_3,
+      ),
+      ('gf180mcu', '5v0') => Gf180mcuProvider(
+        pdkRoot: root,
+        voltage: Gf180mcuVoltage.v5_0,
+      ),
+      _ => throw UnsupportedError('Unknown ASIC target: $spec'),
+    };
+    return HarborAsicTarget(
+      provider: provider,
+      topCell: name,
+      frequency: mimicClockHz,
+    );
+  }
 
   /// The board catalog entry this build targets, or null on the `--target`
   /// escape hatch where the caller named a part and not a board.
@@ -541,11 +582,16 @@ class MimicGenIpConfig {
   HarborSoC buildSoC() {
     validate();
     final target = buildTarget();
+    final targetFrequency = switch (target) {
+      HarborFpgaTarget(:final frequency) => frequency,
+      HarborAsicTarget(:final frequency) => frequency,
+      HarborSimTarget(:final frequency) => frequency,
+    };
     return buildMimicSoc(
       name: name,
       target: target,
       board: board,
-      oscHz: target.frequency,
+      oscHz: targetFrequency,
       idVendor: idVendor,
       idProduct: idProduct,
       serialNumber: serialNumber,

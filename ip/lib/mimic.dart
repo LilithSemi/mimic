@@ -8,6 +8,7 @@ export 'src/sd_regs.dart';
 export 'src/hw/led_activity.dart';
 export 'src/hw/reset_sync.dart';
 export 'src/hw/sd_block_cache.dart';
+export 'src/hw/byte_lane_cdc_fifo.dart';
 export 'src/hw/sd_block_ram.dart';
 export 'src/hw/sd_card.dart';
 export 'src/hw/sd_card_device.dart';

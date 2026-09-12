@@ -100,6 +100,36 @@ The server publishes the CSD, learns the hardware cache size, clears stale
 write-channel words, and then enables the card. Reset the device under test
 only after the CLI prints `press ctrl-c to stop`.
 
+## Serve-loop invariants
+
+The CLI starts a server in this order:
+
+1. Write and read back `CSD_0` through `CSD_3`.
+2. Publish the block count in `NUM_BLOCKS`.
+3. Read `CACHE_LINES` and configure the host cache model.
+4. Drain stale words from `DATA_OUT` and send one failed acknowledgement when
+   the channel was not empty.
+5. Set `CTRL.ENABLE` and, for `--ro`, `CTRL.READ_ONLY`.
+
+Do not enable the card before the size and channels are ready. The SD host can
+start identification as soon as enable reaches the SD domain.
+
+Each request poll is bounded. The server takes at most 64 records from one
+reported count, and one record can request at most 256 blocks. It reads both
+request words, writes `REQ_POP`, and then validates the record. An invalid
+record must still leave the request channel or all later records stop behind
+it.
+
+A demand read waits for one complete block of `DATA_IN` credit. The credit is
+conservative and is spent locally before the runtime reads the register
+again. A speculative fill never waits for credit. It defers when a demand
+record is pending or when one block does not fit.
+
+A write always removes all 128 words from `DATA_OUT` before it validates the
+record. It then updates the image when valid and sends `WRITE_ACK` before it
+writes a diagnostic message. These orders keep the record stream and data
+stream aligned, and they release DAT0 busy even when logging fails.
+
 ## Read-ahead
 
 `--read-ahead=N` fills up to N blocks after a read into the FPGA cache. A
@@ -110,6 +140,25 @@ Read-ahead is still under hardware validation. Use `--read-ahead=0` for a
 reliable boot until [../docs/status.md](../docs/status.md) removes this
 restriction. A nonzero test must start from a freshly programmed FPGA and a
 pristine image so stale channel state does not hide the result.
+
+One demand read opens one fixed read-ahead window. The window never moves past
+its original end. The server sends at most one speculative block before it
+polls `REQ_COUNT` again. Cache hits can consume a window without a new request,
+so an idle poll continues an open window until it is complete.
+
+## Host cache model
+
+The runtime models the direct-mapped FPGA cache so it does not send a fill for
+a block that is already present. It reads the line count from `CACHE_LINES`.
+A count that is not a power of two, is less than two, or is more than 1,024
+turns the model off. With the model off, every eligible fill is sent. This
+costs bandwidth but cannot skip needed data.
+
+A successful demand response or fill inserts its LBA in the model. A write
+removes that LBA only when the line holds the same LBA. If the card requests a
+block that the model says is present, the card has lost cache state. CMD0 can
+cause this because SD commands do not reach the runtime. The server clears the
+whole model and increments `model resets`.
 
 ## Statistics
 
@@ -150,3 +199,9 @@ EVENT, releases the USB interface, and closes the image.
 Do not kill the process while the card holds DAT0 busy for a write. If a run
 ends during a transfer, reload the FPGA SRAM bitstream before the next boot.
 This clears request, tag, and data channel state.
+
+The next `serve` can repair only the write-data channel. It removes the stale
+words and sends a failed acknowledgement. It cannot prove or repair the
+alignment of the read request, read data, and tag channels. Reload the
+bitstream after an unclean stop, a USB disconnect, a timeout, or a nonzero
+data-overflow event.

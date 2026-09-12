@@ -55,6 +55,7 @@ import 'package:rohd/rohd.dart';
 import 'package:rohd_bridge/rohd_bridge.dart';
 
 import 'hw/led_activity.dart';
+import 'hw/byte_lane_cdc_fifo.dart';
 import 'hw/reset_sync.dart';
 import 'hw/sd_block_cache.dart' show sdCacheDefaultLines, sdCacheLinesValid;
 import 'hw/sd_card.dart';
@@ -100,6 +101,14 @@ const int mimicSdCardBase = mimicCsrBase;
 /// with a different oscillator needs a divider plan before it can carry this
 /// SoC.
 const int mimicClockHz = 48000000;
+
+/// Highest SD clock rate this card advertises and accepts, in Hz.
+///
+/// The card reports default speed only. SD default speed has a 25 MHz limit,
+/// and the SG2000 boot ROM changes between 6 MHz and 25 MHz during boot. The
+/// FPGA timing constraint must cover the higher rate instead of treating this
+/// host-supplied clock as another 48 MHz system clock.
+const int mimicSdClockMaxHz = 25000000;
 
 /// Name of the SoC clock domain the whole design runs in.
 ///
@@ -346,10 +355,8 @@ HarborFpgaTarget resolveMimicTarget({
   // The --target escape hatch (board not in the catalog) wins when set: there
   // is no catalog to merge with, so its pins come entirely from --pin.
   if (targetSpec != null) {
-    return parseFpgaTarget(
-      targetSpec,
-      userPins,
-      frequency: oscHz ?? mimicClockHz,
+    return _withMimicFpgaConstraints(
+      parseFpgaTarget(targetSpec, userPins, frequency: oscHz ?? mimicClockHz),
     );
   }
   if (board == null) {
@@ -363,9 +370,34 @@ HarborFpgaTarget resolveMimicTarget({
     final site = catalog.pins[signal];
     if (site != null) aliased[port] = site;
   });
-  return catalog.fpgaTarget(
-    frequency: oscHz,
-    extraPins: {...aliased, ...userPins},
+  return _withMimicFpgaConstraints(
+    catalog.fpgaTarget(frequency: oscHz, extraPins: {...aliased, ...userPins}),
+  );
+}
+
+/// Adds constraints for clocks that the Mimic design receives from its host.
+///
+/// Harbor constrains the board oscillator through [HarborFpgaTarget.frequency].
+/// The SD clock is unrelated to that oscillator and needs its own constraint.
+/// LPF can state both clocks. Other target families need their own constraint
+/// syntax, so this function does not put an LPF statement in those files.
+HarborFpgaTarget _withMimicFpgaConstraints(HarborFpgaTarget target) {
+  if (target.vendor != HarborFpgaVendor.ecp5) return target;
+  return HarborFpgaTarget(
+    name: target.name,
+    vendor: target.vendor,
+    device: target.device,
+    package: target.package,
+    frequency: target.frequency,
+    pinMap: target.pinMap,
+    extraConstraints: {
+      ...target.extraConstraints,
+      'mimic_sd_clock':
+          'FREQUENCY PORT "$mimicSdClkPinName" '
+          '${mimicSdClockMaxHz / 1000000} MHz;',
+    },
+    clockPortName: target.clockPortName,
+    progCommand: target.progCommand,
   );
 }
 
@@ -830,12 +862,10 @@ HarborSoC buildMimicSoc({
   // that it cannot safely admit another block. The write channel below has
   // another depth, so [HarborCdcFifo] gives the two channels different
   // module definition names.
-  final dataFifo = HarborCdcFifo(
-    dataWidth: 32,
+  final dataFifo = MimicByteLaneCdcFifo(
     depth: sdDataInFifoWords,
     almostFullMargin: sdBlockWords,
     target: target,
-    blockRam: true,
     name: 'sd_data_fifo',
   );
   soc.addSubModule(dataFifo);

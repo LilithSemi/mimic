@@ -41,9 +41,9 @@ This option only makes the file larger. It cannot be used with `--ro`.
 | `--stats` | Print transfer, cache, fill, and error counters at exit. |
 | `--read-ahead=N` | Fill N blocks after a read into the FPGA cache. |
 
-Read-ahead is not safe on the reference hardware at this time. Always set
-`--read-ahead=0` for a boot test. The current CLI default is nonzero, so do
-not omit the option.
+The reference hardware has completed a NixOS boot with `--read-ahead=3`. A
+zero value remains useful as a diagnostic because it removes speculative fill
+traffic from the test.
 
 The default serve mode is read-write. The runtime waits for a complete image
 write before it acknowledges the SD write. Stop the server cleanly so it can

@@ -142,6 +142,60 @@ can become visible on different SD clocks. The read path waits for both the
 data FIFO and tag FIFO before it takes a block. This keeps sequence tags and
 block data aligned.
 
+## Clock-domain invariants
+
+Keep these rules when you change `soc.dart` or an SD channel:
+
+- The system domain runs at 48 MHz. The full-speed USB PHY uses four system
+  clocks for each USB bit, so this rate is fixed for the current PHY.
+- The device under test supplies `sd_clk`. It can stop with no warning. A CDC
+  path must not require the SD domain to acknowledge a transfer before that
+  clock starts again.
+- `MimicResetSync` asserts the SD reset asynchronously and releases it on SD
+  clock edges. The `sdHeld` level makes the request and write-data channels
+  read empty in the system domain until this reset has crossed. It also makes
+  the read-data and tag channels read as not full.
+- A multi-bit stream crosses in an asynchronous FIFO. Free-running counts
+  cross as gray code. A stable CSD value crosses through a handshake. A
+  one-bit level uses a two-flop synchronizer.
+- SD inputs are sampled on rising edges. CMD and DAT outputs are registered on
+  falling edges. This gives the host half a clock of setup time.
+
+Do not replace a FIFO or gray count with one synchronizer for each data bit.
+The destination can then observe bits from different source values.
+
+## Read-channel invariants
+
+One read block has three related values: 128 data words, one sequence tag, and
+one completed-block count. Preserve these rules:
+
+- The system side reserves room for the data and tag before it accepts a
+  block. The final `DATA_IN` word commits the completed block.
+- The data FIFO and tag FIFO have independent pointer synchronizers. The SD
+  side must see both FIFOs as nonempty before it takes either head.
+- One `block_take` removes exactly one tag. Exactly 128 `data_pop` pulses
+  remove its data.
+- A block starts on DAT only when the completed-block count differs from the
+  number of blocks taken. The card cannot pause a block after transmission
+  starts.
+- Sequence tag 0 never names a demand request. It identifies a cache fill and
+  must carry a valid fill LBA.
+
+The request and write-data channels use the opposite direction. Register
+reads do not remove their heads. Only `REQ_POP` and `DATA_OUT_POP` writes move
+them. This rule lets diagnostic CSR reads run without corrupting a server.
+
+## Cache invariants
+
+The cache data and LBA tags use block RAM. Valid bits use flops because CMD0
+must invalidate every line in one SD clock. A clear wins when a valid set and
+clear target the same clock. An all-line clear also abandons a fill in
+progress, so a fill that started before CMD0 cannot become valid afterward.
+
+A cache lookup has registered latency. Use `hit_valid` before you use the hit
+result. A CMD24 invalidation shares the tag read port and clears a line only
+when that line contains the written LBA.
+
 ## Generated artifacts
 
 The generator writes a complete target directory:

@@ -739,7 +739,7 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\           holds costs no round trip at all. --read-ahead=N also
         \\           puts the N blocks AFTER each read into that cache, so
         \\           a host walking a file pays one round trip for N+1
-        \\           blocks. The default is 2 and 0 turns it off.
+        \\           blocks. The default is 3 and 0 turns it off.
         \\
         \\
     , .{});

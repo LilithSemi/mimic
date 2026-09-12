@@ -147,6 +147,7 @@ class SdReadBridge extends BridgeModule {
     createPort('wb_sel', PortDirection.input, width: 4);
     createPort('sd_cmd_in', PortDirection.input);
     createPort('sd_dat_in', PortDirection.input);
+    createPort('tag_visible', PortDirection.input);
     addOutput('wb_ack');
     addOutput('wb_miso', width: 32);
     addOutput('sd_cmd_out');
@@ -292,10 +293,14 @@ class SdReadBridge extends BridgeModule {
     // The data channel, four whole blocks deep, the way the SoC sets it.
     // Its almost-full margin is one block, so the flag gates admission of
     // a transaction that must land all 128 words.
-    final dataFifo = HarborCdcFifo(
-      dataWidth: 32,
+    const ecp5Target = HarborFpgaTarget.ecp5(
+      device: 'lfe5u-25f',
+      package: 'CSFBGA285',
+    );
+    final dataFifo = MimicByteLaneCdcFifo(
       depth: sdDataInFifoWords,
       almostFullMargin: sdBlockWords,
+      target: ecp5Target,
       name: 'sd_data_fifo',
     );
     addSubModule(dataFifo);
@@ -339,7 +344,8 @@ class SdReadBridge extends BridgeModule {
             );
     card.input('data_fill_valid').srcConnection! <=
         tagFifo.output('rd_data')[sdTagChannelValidBit];
-    card.input('data_tag_empty').srcConnection! <= tagFifo.output('rd_empty');
+    card.input('data_tag_empty').srcConnection! <=
+        (tagFifo.output('rd_empty') | ~input('tag_visible'));
 
     if (breakDataCrossing) {
       // The broken crossing: one register in the SD clock domain that
@@ -493,6 +499,9 @@ class SdReadBench {
   final Logic adr;
   final Logic dat;
 
+  /// Test control for the tag FIFO read-side visibility.
+  final Logic tagVisible;
+
   SdReadBench({
     required this.bridge,
     required this.host,
@@ -503,6 +512,7 @@ class SdReadBench {
     required this.we,
     required this.adr,
     required this.dat,
+    required this.tagVisible,
   });
 
   /// The card state that the card reports now, on the SD side.
@@ -545,6 +555,7 @@ Future<SdReadBench> setUpSdReadBench({
   final adr = Logic(name: 'wb_adr', width: 12);
   final dat = Logic(name: 'wb_dat', width: 32);
   final sel = Logic(name: 'wb_sel', width: 4);
+  final tagVisible = Logic(name: 'tag_visible');
 
   // One SD clock period is 10 time units, which is what the host model
   // drives. 6 is not a whole part of it, so the two domains drift against
@@ -562,6 +573,7 @@ Future<SdReadBench> setUpSdReadBench({
   bridge.input('wb_adr').srcConnection! <= adr;
   bridge.input('wb_dat').srcConnection! <= dat;
   bridge.input('wb_sel').srcConnection! <= sel;
+  bridge.input('tag_visible').srcConnection! <= tagVisible;
   await bridge.build();
 
   final host = SdHost(
@@ -591,6 +603,7 @@ Future<SdReadBench> setUpSdReadBench({
   adr.inject(0);
   dat.inject(0);
   sel.inject(0xF);
+  tagVisible.inject(1);
   Simulator.setMaxSimTime(40000000);
   unawaited(Simulator.run());
   // One tick with the reset low, and then the edge.
@@ -624,6 +637,7 @@ Future<SdReadBench> setUpSdReadBench({
     we: we,
     adr: adr,
     dat: dat,
+    tagVisible: tagVisible,
   );
 }
 

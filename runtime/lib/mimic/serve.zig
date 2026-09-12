@@ -369,12 +369,13 @@ pub const Server = struct {
     /// What the card cache holds, as far as this side knows.
     cache: CacheModel = .{},
 
-    /// The first block a read ahead would fill, and whether one is owed.
+    /// The next block and fixed end of the read-ahead window.
     ///
     /// The read ahead runs AFTER the batch of records, not inside it. The
     /// card takes a fill only while its read path is idle, and a record
     /// that is still waiting says it is not.
     ahead_from: u64 = 0,
+    ahead_end: u64 = 0,
     ahead_owed: bool = false,
 
     /// Writes NUM_BLOCKS, so the card reports the size of the image.
@@ -553,6 +554,7 @@ pub const Server = struct {
         // The read ahead starts after the last block of the record and
         // runs once the whole batch of records is served.
         self.ahead_from = end;
+        self.ahead_end = @min(end + self.options.read_ahead, self.image.blocks);
         self.ahead_owed = true;
     }
 
@@ -582,7 +584,7 @@ pub const Server = struct {
         }
 
         const from = self.ahead_from;
-        const end = @min(from + self.options.read_ahead, self.image.blocks);
+        const end = self.ahead_end;
         if (from >= end) {
             self.ahead_owed = false;
             return;
@@ -613,6 +615,15 @@ pub const Server = struct {
             try self.image.readBlock(lba, &block);
             try self.pushFill(&block, lba);
             self.ahead_from = lba + 1;
+
+            // Send at most one speculative block per request poll. A new
+            // demand can arrive while USB carries this block, so the count
+            // that allowed the fill is stale after the transfer. Returning
+            // makes the main loop read REQ_COUNT again before it sends the
+            // next fill. The window stays open until every block in it was
+            // sent or skipped.
+            if (self.ahead_from >= end) self.ahead_owed = false;
+            return;
         }
         // One request opens exactly one bounded window. Cache hits and direct
         // fills consume that window without records; the first miss after it
@@ -2263,6 +2274,7 @@ test "a read ahead fills the blocks after the record and tags them as fills" {
     try server.learnCache();
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try server.continueReadAhead();
 
     // One block for the record and two fills after it.
     try std.testing.expectEqual(@as(usize, 3), fake.tags_len);
@@ -2317,6 +2329,7 @@ test "a read ahead pushes nothing for a block the card already holds" {
     server.cache.insert(11);
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try server.continueReadAhead();
 
     // The record and ONE fill: block 11 cost nothing at all.
     try std.testing.expectEqual(@as(usize, 2), fake.tags_len);
@@ -2448,6 +2461,7 @@ test "a record for a block the model claims clears the whole model" {
     server.cache.insert(50);
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try server.continueReadAhead();
     try std.testing.expectEqual(@as(u64, 1), server.stats.model_resets);
     // The clear happened before the record was served, so block 50 is
     // forgotten and block 11 is filled again rather than skipped.
@@ -2567,6 +2581,8 @@ test "a fill carries the fill tag and its own address, never a record tag" {
     };
     try server.learnCache();
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try server.continueReadAhead();
+    try server.continueReadAhead();
 
     // One block for the record and three fills after it.
     try std.testing.expectEqual(@as(usize, 4), fake.tags_len);
@@ -2671,9 +2687,13 @@ test "a read ahead block costs two USB frames and no poll of its own" {
     // The first pass spends the one read of DATA_IN_COUNT, so what the
     // second costs is the steady cost and not the cost of starting.
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try server.continueReadAhead();
+    try server.continueReadAhead();
 
     fake.frames = 0;
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try server.continueReadAhead();
+    try server.continueReadAhead();
     // Six for the record, two for each of the three fills, and ONE read
     // of DATA_IN_COUNT, because the four blocks of the pass before spent
     // the whole credit of the channel. Thirteen frames for four blocks.

@@ -371,6 +371,13 @@ class MimicSdReadPath extends BridgeModule {
     createPort('data_word', PortDirection.input, width: 32);
     createPort('data_empty', PortDirection.input);
 
+    // The tag and data use separate asynchronous FIFOs. Their read pointers
+    // cross independently, so either FIFO can become visible one SD clock
+    // before the other. A whole block is ready only when both heads are
+    // visible. Taking data while the tag still reads empty permanently moves
+    // the two channels out of step.
+    createPort('block_tag_empty', PortDirection.input);
+
     // The COUNT of complete blocks the runtime has pushed, already crossed
     // into this clock domain. The card counts the blocks it has taken and
     // the difference is the number of whole blocks that wait on the
@@ -586,9 +593,10 @@ class MimicSdReadPath extends BridgeModule {
     // blocks than the card has taken, and both counts wrap at the same
     // number, so the compare is right through every wrap.
     final haveBlock =
-        (input('blocks_pushed').neq(blocksTaken) & ~input('data_empty')).named(
-          'have_block',
-        );
+        (input('blocks_pushed').neq(blocksTaken) &
+                ~input('data_empty') &
+                ~input('block_tag_empty'))
+            .named('have_block');
     final enable = input('enable');
 
     // The card takes a read from idle, and ALSO while it is taking a block
@@ -748,7 +756,11 @@ class MimicSdReadPath extends BridgeModule {
     final fillMatchesWait = (blockIsFill & blockFillLba.eq(curLba)).named(
       'read_fill_matches_wait',
     );
-    goOnDirect <= goOn & gapBlock & blockIsFill & blockFillLba.eq(nextLba);
+    // A fill takes the cache path even when it names the next stream block.
+    // Starting it directly on the end clock of the previous block gives the
+    // host no command gap in which to issue CMD12. The cache path absorbs the
+    // fill first, then uses the normal lookup and transmit sequence.
+    goOnDirect <= Const(0);
 
     // The block leaves the channel one word at a time. The first word is
     // loaded before the link opens the block, because the link takes byte

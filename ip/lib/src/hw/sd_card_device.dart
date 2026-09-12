@@ -276,14 +276,42 @@ class MimicSdCardDevice extends BridgeModule {
     fsm.input('clk').srcConnection! <= clk;
     fsm.input('reset').srcConnection! <= reset;
 
-    // The pins. The link owns both lines, so the card drive and the output
-    // enable come straight out of it.
+    // The pins. The link samples inputs on the rising edge. Card outputs are
+    // launched on the falling edge, which gives the host half an SD clock of
+    // setup time before it samples the next rising edge. Driving the pads
+    // directly from positive-edge state makes both ends use the same edge and
+    // leaves hardware correctness to clock-tree and pad delay.
     link.input('cmd_in').srcConnection! <= input('sd_cmd_in');
     link.input('dat_in').srcConnection! <= input('sd_dat_in');
-    output('sd_cmd_out') <= link.output('cmd_out');
-    output('sd_cmd_oe') <= link.output('cmd_oe');
-    output('sd_dat_out') <= link.output('dat_out');
-    output('sd_dat_oe') <= link.output('dat_oe');
+    final cmdOut = Logic(name: 'sd_cmd_out_negedge');
+    final cmdOe = Logic(name: 'sd_cmd_oe_negedge');
+    final datOut = Logic(name: 'sd_dat_out_negedge', width: busWidth);
+    final datOe = Logic(name: 'sd_dat_oe_negedge');
+    Sequential.multi(
+      const [],
+      negedgeTriggers: [clk],
+      reset: reset,
+      asyncReset: true,
+      resetValues: {
+        cmdOut: Const(1),
+        cmdOe: Const(0),
+        datOut: Const(1, width: busWidth, fill: true),
+        datOe: Const(0),
+      },
+      [
+        cmdOut < link.output('cmd_out'),
+        cmdOe < link.output('cmd_oe'),
+        datOut < link.output('dat_out'),
+        datOe < link.output('dat_oe'),
+      ],
+    );
+    // Hold the external bus released while reset stands. This also covers a
+    // clock that has not produced its first falling edge yet.
+    output('sd_cmd_out') <= mux(reset, Const(1), cmdOut);
+    output('sd_cmd_oe') <= mux(reset, Const(0), cmdOe);
+    output('sd_dat_out') <=
+        mux(reset, Const(1, width: busWidth, fill: true), datOut);
+    output('sd_dat_oe') <= mux(reset, Const(0), datOe);
 
     // The command path, link to state machine. The four signals belong to
     // one clock: `cmd_valid` is a pulse of one clock and the other three
@@ -341,11 +369,10 @@ class MimicSdCardDevice extends BridgeModule {
     // of the block that arrived LAST and the card would read it as the tag
     // of the block at the head.
     //
-    // The tag reaches this domain before the block does. The runtime writes
-    // the tag and then the 128 words of the block, and the count of pushed
-    // blocks moves two bus clocks after the LAST of those words, so the tag
-    // has crossed long before the count has. An empty channel reads the tag
-    // that names no request, which is what an untagged block gets.
+    // The tag FIFO and data FIFO pointers cross independently. The completed
+    // block count starts crossing after both entries are committed, but it
+    // does not impose an order on the two FIFO synchronisers. The read path
+    // therefore also waits for this tag channel to become nonempty.
     final blockTag = mux(
       input('data_tag_empty'),
       Const(sdRequestSeqNone, width: sdRequestSeqBits),
@@ -381,6 +408,7 @@ class MimicSdCardDevice extends BridgeModule {
     readPath.input('cmd_busy').srcConnection! <= link.output('resp_busy');
     readPath.input('data_word').srcConnection! <= input('data_word');
     readPath.input('data_empty').srcConnection! <= input('data_empty');
+    readPath.input('block_tag_empty').srcConnection! <= input('data_tag_empty');
     readPath.input('blocks_pushed').srcConnection! <= blocksPushed;
     readPath.input('block_tag').srcConnection! <= blockTag;
     // One tag leaves the tag channel for each block the card takes. See

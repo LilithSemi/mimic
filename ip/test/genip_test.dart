@@ -636,6 +636,7 @@ void main() {
         expect(lpf, contains('LOCATE COMP "usb_dm" SITE "M2"'));
         expect(lpf, contains('LOCATE COMP "usb_pullup" SITE "N2"'));
         expect(lpf, contains('FREQUENCY PORT "clk" 48.0 MHz'));
+        expect(lpf, contains('FREQUENCY PORT "sd_clk" 25.0 MHz;'));
         // The board glue the hand-written shim used to carry: harbor's
         // active-low reset input on the button site, and the bench LED.
         expect(lpf, contains('LOCATE COMP "reset_n" SITE "V17"'));

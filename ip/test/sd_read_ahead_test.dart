@@ -52,6 +52,41 @@ const int _crossingClocks = 8;
 void main() {
   tearDown(Simulator.reset);
 
+  test('data waits when its tag FIFO pointer crosses later', () async {
+    final b = await setUpSdReadBench();
+    await wbWrite(b, MimicReg.ctrl, MimicCtrl.enable);
+    await walkToTran(b);
+
+    const fillLba = sdTestLba + 63;
+    final bytes = sdTestBlockBytesFor(fillLba);
+
+    // Model the independent CDC ordering seen in hardware: data and the
+    // completed-block count are visible in the SD domain, but the tag FIFO
+    // read pointer has not crossed yet.
+    b.tagVisible.inject(0);
+    await pushFillNoDrain(b, bytes, lba: fillLba);
+    await b.host.idle(_crossingClocks + 8);
+
+    expect(
+      await wbRead(b, MimicReg.dataInCount),
+      sdDataInFifoWords - sdBlockWords,
+      reason: 'the card consumed data before its matching tag was visible.',
+    );
+
+    b.tagVisible.inject(1);
+    await b.host.idle(sdBlockWords + 64);
+    expect(
+      await wbRead(b, MimicReg.dataInCount),
+      sdDataInFifoWords,
+      reason:
+          'the card did not consume the block after its tag became visible.',
+    );
+
+    final got = await readCachedBlock(b, fillLba, reason: 'delayed tag:');
+    expect(got.bytes, bytes);
+    await Simulator.endSimulation();
+  });
+
   test(
     'a read is taken while a fill is still coming off the channel',
     () async {
@@ -115,8 +150,7 @@ void main() {
     },
   );
 
-  test('a fill pushed behind the answer makes the next block of a stream a '
-      'hit', () async {
+  test('three fills behind an answer stream as four ordered blocks', () async {
     // Read ahead during CMD18, which is where boot spends nearly all of
     // its time. The runtime answers the record for block N and pushes the
     // fill for block N+1 behind it, which is the order it really uses. The
@@ -138,6 +172,8 @@ void main() {
 
     final first = sdTestBlockBytesFor(sdTestLba);
     final second = sdTestBlockBytesFor(sdTestLba + 1);
+    final third = sdTestBlockBytesFor(sdTestLba + 2);
+    final fourth = sdTestBlockBytesFor(sdTestLba + 3);
     expect(
       first[0],
       isNot(second[0]),
@@ -148,14 +184,16 @@ void main() {
     // The read ahead of the runtime, pushed behind the answer and while
     // the card is still sending the block before it.
     await pushFillNoDrain(b, second, lba: sdTestLba + 1);
+    await pushFillNoDrain(b, third, lba: sdTestLba + 2);
+    await pushFillNoDrain(b, fourth, lba: sdTestLba + 3);
 
     final gotFirst = await b.host.receiveDataBlock(timeoutClocks: 400);
     expect(gotFirst.timedOut, isFalse, reason: 'block 0 never came.');
     expect(gotFirst.crcOk, isTrue, reason: 'block 0 carries a bad CRC16.');
     expect(gotFirst.bytes, first, reason: 'block 0 holds other bytes.');
 
-    // The card takes the fill off the channel in the gap and looks block 1
-    // up after it. No record is answered here at all.
+    // Each fill is already the next address of the stream. The card sends all
+    // three directly from the FIFO without a request between blocks.
     final gotSecond = await b.host.receiveDataBlock(
       timeoutClocks: _gapTimeoutClocks,
     );
@@ -172,16 +210,29 @@ void main() {
       second,
       reason: 'block 1 holds other bytes than the fill carried.',
     );
-    // The stream asks for block 2 at the end bit of block 1, and nothing
-    // has answered that one, so exactly ONE record stands. A card that had
-    // missed block 1 would have posted two.
+    final gotThird = await b.host.receiveDataBlock(
+      timeoutClocks: _gapTimeoutClocks,
+    );
+    expect(gotThird.timedOut, isFalse, reason: 'block 2 never came.');
+    expect(gotThird.crcOk, isTrue, reason: 'block 2 carries a bad CRC16.');
+    expect(gotThird.bytes, third, reason: 'block 2 holds other bytes.');
+
+    final gotFourth = await b.host.receiveDataBlock(
+      timeoutClocks: _gapTimeoutClocks,
+    );
+    expect(gotFourth.timedOut, isFalse, reason: 'block 3 never came.');
+    expect(gotFourth.crcOk, isTrue, reason: 'block 3 carries a bad CRC16.');
+    expect(gotFourth.bytes, fourth, reason: 'block 3 holds other bytes.');
+
+    // The stream asks for block 4 at the end of the queued window. Nothing
+    // has answered it, so exactly one record stands.
     await b.host.idle(8);
     expect(
       await wbRead(b, MimicReg.reqCount),
       1,
       reason:
-          'block 1 posted a record of its own, so the fill never reached '
-          'the cache.',
+          'a queued fill posted a record of its own or the stream did not '
+          'advance through all four blocks.',
     );
 
     await b.host.idle(sdCommandGapClocks);

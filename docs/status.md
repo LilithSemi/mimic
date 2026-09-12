@@ -13,13 +13,14 @@ compatibility promise.
 - Single-block reads and writes reach a host disk image.
 - A Nix Vegas Badge V2 has booted through U-Boot, Linux, NixOS stage 1, and
   NixOS stage 2 from a Mimic image.
+- A clean hardware run with `--read-ahead=3` reached the NixOS serial login
+  prompt. U-Boot read the 27,693,915-byte initrd at 216.8 KiB/s and the
+  63,945,216-byte kernel at 215.8 KiB/s.
 - Writable tests have completed partition and file-system growth with no
   dropped Mimic writes in the measured run.
 
 ## Known limitations
 
-- **Read-ahead is not reliable.** A nonzero `--read-ahead` value has corrupted
-  boot transfers on hardware. Use `--read-ahead=0` for all reliable work.
 - **Cold-start reads are not fully stable.** A new FPGA configuration can
   require more than one device reset before U-Boot reads reliably. Observed
   failures include U-Boot SD errors and an early synchronous abort.
@@ -31,12 +32,13 @@ compatibility promise.
   targets, but they do not have a current silicon result.
 - **The runtime USB identity is fixed.** It scans for `1209:10c1` and claims
   interface 0 through usbfs.
-- **The CLI default enables read-ahead.** Pass `--read-ahead=0` explicitly
-  until this page says otherwise.
+- **Stage 2 is slow on a cold image.** First-boot work and service startup can
+  exceed normal systemd timeouts at the current transfer rate. The proved run
+  reached a login prompt, but some nonessential services timed out and retried.
 
 ## Bring-up target
 
-The next hardware goal is a repeatable cold boot with nonzero read-ahead and
-no read timeout, wrong block, or FIFO alignment fault. The acceptance run must
-start from a new FPGA SRAM configuration and a pristine disk image. It must
+The next hardware goal is repeated cold boots with nonzero read-ahead and no
+read timeout, wrong block, or FIFO alignment fault. A wider test must start
+from a new FPGA SRAM configuration and a pristine disk image. Each run must
 reach the guest login prompt without an extra device reset.

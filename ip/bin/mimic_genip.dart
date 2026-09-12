@@ -57,9 +57,10 @@ Future<void> main(List<String> argv) async {
       'target',
       help:
           'Escape hatch for a board NOT in the catalog: '
-          '"vendor:device:package" (e.g. ecp5:25f:CSFBGA285) with pin sites '
-          'from --pin. Overrides --board when set.',
+          '"vendor:device:package" for an FPGA, or "pdk:variant" for an '
+          'ASIC. Overrides --board when set.',
     )
+    ..addOption('pdk-root', help: 'Root of the PDK named by an ASIC --target.')
     ..addMultiOption(
       'pin',
       abbr: 'p',
@@ -157,6 +158,7 @@ Future<void> main(List<String> argv) async {
     name: args.option('name')!,
     boardName: args.option('board'),
     targetSpec: args.option('target'),
+    pdkRoot: args.option('pdk-root'),
     pinSpecs: args.multiOption('pin'),
     oscHz: oscFreq == null ? null : int.parse(oscFreq),
     transport: args.option('transport')!,
