@@ -5,6 +5,10 @@
     flakever.url = "github:numinit/flakever";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     zippy.url = "git+https://git.lilithsemi.com/LilithSemi/zippy";
+    asix = {
+      url = "git+https://git.lilithsemi.com/LilithSemi/asix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -76,6 +80,7 @@
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
             overlays = [
+              inputs.asix.overlays.default
               self.overlays.default
               inputs.zippy.overlays.default
             ];
@@ -121,9 +126,29 @@
             };
           };
 
-          packages = {
-            inherit (pkgs) mimic-ip mimic-rt;
-          };
+          packages =
+            let
+              devices = import ./devices.nix {
+                inherit (pkgs) mimic-ip;
+                sky130-pdk = pkgs.sky130-pdk or null;
+                gf180mcu-pdk = pkgs.gf180mcu-pdk or null;
+              };
+              devicePackages = pkgs.lib.concatMapAttrs (
+                name: config:
+                {
+                  "${name}" = config.ip;
+                }
+                // pkgs.lib.optionalAttrs (config.kind == "fpga") {
+                  "${name}-bitstream" = pkgs.mimic-ip.mkFpga {
+                    ip = config.ip;
+                  };
+                }
+              ) devices;
+            in
+            {
+              inherit (pkgs) mimic-ip mimic-rt;
+            }
+            // devicePackages;
 
           devShells = {
             default = pkgs.mimic-ip.shell;

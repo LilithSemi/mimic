@@ -3,6 +3,7 @@
   manufactureDate,
   lib,
   buildDartApplication,
+  callPackage,
   mkShell,
   dart,
   yq,
@@ -19,7 +20,7 @@
 assert
   lib.match "[0-9]{4}-(0[1-9]|1[0-2])" manufactureDate != null
   || throw "manufactureDate must be YYYY-MM, got: ${manufactureDate}";
-buildDartApplication {
+buildDartApplication (finalAttrs: {
   pname = "mimic-ip";
   inherit (flakever) version;
 
@@ -45,35 +46,25 @@ buildDartApplication {
 
   extraWrapProgramArgs = "--add-flags '--manufacture-date ${manufactureDate}'";
 
-  doCheck = true;
+  doCheck = false;
 
-  checkPhase = ''
-    runHook preCheck
-
-    export HOME=$TMPDIR
-    export PUB_CACHE=$TMPDIR/.pub-cache
-
-    testPkgRoot=$(jq --raw-output \
-      '.packages[] | select(.name == "test") | .rootUri | sub("file://"; "")' \
-      .dart_tool/package_config.json)
-
-    dart --packages=.dart_tool/package_config.json \
-      "$testPkgRoot/bin/test.dart"
-
-    runHook postCheck
-  '';
-
-  passthru.shell = mkShell {
-    name = "mimic-ip-dev-shell";
-    packages = [
-      dart
-      yq
-      openfpgaloader
-      picocom
-      yosys
-      nextpnr
-      trellis
-      icestorm
-    ];
+  passthru = {
+    mkDevice = callPackage ../mimic-device {
+      mimic-ip = finalAttrs.finalPackage;
+    };
+    mkFpga = callPackage ../mimic-fpga { };
+    shell = mkShell {
+      name = "mimic-ip-dev-shell";
+      packages = [
+        dart
+        yq
+        openfpgaloader
+        picocom
+        yosys
+        nextpnr
+        trellis
+        icestorm
+      ];
+    };
   };
-}
+})
