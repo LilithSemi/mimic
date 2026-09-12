@@ -88,7 +88,8 @@ remains the extensible control plane.
 | ---- | -------- |
 | `ip/` | The Dart and ROHD gateware, the generator, and gateware tests. |
 | `runtime/` | The Zig host library and `mimic-cli`. |
-| `pkgs/` | The Nix packages for the generator and runtime. |
+| `pcb/` | The KiCad hardware design for the dedicated Mimic board. |
+| `pkgs/` | The Nix packages for the generator, runtime, and PCB outputs. |
 | `devices.nix` | The FPGA and PDK build target declarations. |
 | `docs/` | Architecture, hardware, operation, and diagnostic notes. |
 
@@ -115,3 +116,6 @@ support and the documentation.
 
 [REUSE.toml](REUSE.toml) gives the license of each path. The full texts
 are in [LICENSE-CERN-OHL-S](LICENSE-CERN-OHL-S) and [LICENSE](LICENSE).
+
+The board design files under `pcb/` are licensed separately under
+CERN-OHL v1.2. See [pcb/LICENSE](pcb/LICENSE).
