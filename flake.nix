@@ -116,6 +116,7 @@
               flakever = flakeverConfig;
               inherit manufactureDate;
             };
+
             mimic-rt = pkgs.callPackage ./pkgs/mimic-rt {
               flakever = flakeverConfig;
               zippy =
@@ -123,6 +124,10 @@
                   final.zippy
                 else
                   inputs.zippy.packages.${pkgs.hostPlatform.system}.default;
+            };
+
+            mimic-pcb = pkgs.callPackage ./pkgs/mimic-pcb {
+              flakever = flakeverConfig;
             };
           };
 
@@ -146,7 +151,7 @@
               ) devices;
             in
             {
-              inherit (pkgs) mimic-ip mimic-rt;
+              inherit (pkgs) mimic-ip mimic-pcb mimic-rt;
             }
             // devicePackages;
 
@@ -154,6 +159,7 @@
             default = pkgs.mimic-ip.shell;
             ip = pkgs.mimic-ip.shell;
             rt = pkgs.mimic-rt.shell;
+            pcb = pkgs.mimic-pcb.shell;
           };
         };
     };
