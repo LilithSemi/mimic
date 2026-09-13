@@ -1063,52 +1063,6 @@
 		)
 	)
 	(sheet
-		(at 102.87 106.68)
-		(size 45.72 25.4)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(stroke
-			(width 0)
-			(type solid)
-		)
-		(fill
-			(color 0 0 0 0)
-		)
-		(uuid "00000000-0000-0000-0000-00005abd38f2")
-		(property "Sheetname" "sheetHyperRAM"
-			(at 102.87 105.8414 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.524 1.524)
-				)
-				(justify left bottom)
-			)
-		)
-		(property "Sheetfile" "fileHyperRAM.kicad_sch"
-			(at 102.87 132.7662 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.524 1.524)
-				)
-				(justify left top)
-			)
-		)
-		(instances
-			(project "mimic"
-				(path "/a721fc77-faad-4442-9d2d-3560b8c1253d"
-					(page "5")
-				)
-			)
-		)
-	)
-	(sheet
 		(at 45.72 106.68)
 		(size 45.72 25.4)
 		(exclude_from_sim no)
