@@ -1409,7 +1409,7 @@
 			)
 		)
 	)
-	(global_label "P1.35V"
+	(global_label "P3.3V"
 		(shape passive)
 		(at 124.46 60.96 90)
 		(effects
@@ -1497,7 +1497,7 @@
 			)
 		)
 	)
-	(global_label "P1.35V"
+	(global_label "P3.3V"
 		(shape passive)
 		(at 102.87 60.96 90)
 		(effects

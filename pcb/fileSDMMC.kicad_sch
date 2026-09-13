@@ -414,317 +414,6 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Device:C"
-			(pin_numbers
-				(hide yes)
-			)
-			(pin_names
-				(offset 0.254)
-			)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(in_pos_files yes)
-			(duplicate_pin_numbers_are_jumpers no)
-			(property "Reference" "C"
-				(at 0.635 2.54 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify left)
-				)
-			)
-			(property "Value" "C"
-				(at 0.635 -2.54 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify left)
-				)
-			)
-			(property "Footprint" ""
-				(at 0.9652 -3.81 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Datasheet" ""
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Description" "Unpolarized capacitor"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "ki_keywords" "cap capacitor"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "ki_fp_filters" "C_*"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(symbol "C_0_1"
-				(polyline
-					(pts
-						(xy -2.032 0.762) (xy 2.032 0.762)
-					)
-					(stroke
-						(width 0.508)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy -2.032 -0.762) (xy 2.032 -0.762)
-					)
-					(stroke
-						(width 0.508)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "C_1_1"
-				(pin passive line
-					(at 0 3.81 270)
-					(length 2.794)
-					(name ""
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at 0 -3.81 90)
-					(length 2.794)
-					(name ""
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
-		(symbol "Device:Ferrite_Bead_Small"
-			(pin_numbers
-				(hide yes)
-			)
-			(pin_names
-				(offset 0)
-			)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(in_pos_files yes)
-			(duplicate_pin_numbers_are_jumpers no)
-			(property "Reference" "FB"
-				(at 1.905 1.27 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify left)
-				)
-			)
-			(property "Value" "Device_Ferrite_Bead_Small"
-				(at 1.905 -1.27 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify left)
-				)
-			)
-			(property "Footprint" ""
-				(at -1.778 0 90)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Datasheet" ""
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Description" ""
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "ki_fp_filters" "Inductor_* L_* *Ferrite*"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(symbol "Ferrite_Bead_Small_0_1"
-				(polyline
-					(pts
-						(xy -1.8288 0.2794) (xy -1.1176 1.4986) (xy 1.8288 -0.2032) (xy 1.1176 -1.4224) (xy -1.8288 0.2794)
-					)
-					(stroke
-						(width 0)
-						(type solid)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 0 0.889) (xy 0 1.2954)
-					)
-					(stroke
-						(width 0)
-						(type solid)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 0 -1.27) (xy 0 -0.7874)
-					)
-					(stroke
-						(width 0)
-						(type solid)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "Ferrite_Bead_Small_1_1"
-				(pin passive line
-					(at 0 2.54 270)
-					(length 1.27)
-					(name "~"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at 0 -2.54 90)
-					(length 1.27)
-					(name "~"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
 		(symbol "Device:R"
 			(pin_numbers
 				(hide yes)
@@ -1377,12 +1066,6 @@
 		(uuid "a033d981-54c9-4194-9af0-0c7134e6f6aa")
 	)
 	(junction
-		(at 116.84 91.44)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "01c3073d-1b9a-4cc6-ab61-5f332f219c15")
-	)
-	(junction
 		(at 55.88 88.9)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -1401,12 +1084,6 @@
 		(uuid "9d4cc96d-3dac-4564-a67e-a9290e42b754")
 	)
 	(junction
-		(at 121.92 78.74)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "bf20db51-8763-46b9-8a8b-92ca156f32a3")
-	)
-	(junction
 		(at 58.42 88.9)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -1418,11 +1095,9 @@
 		(color 0 0 0 0)
 		(uuid "e4858ec9-ef56-4e38-a02d-1c9d0b87b5be")
 	)
-	(junction
-		(at 116.84 78.74)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "e9c927eb-3b59-4164-978e-00fe3e8d1e48")
+	(no_connect
+		(at 158.75 96.52)
+		(uuid "50feaefe-f605-4ac9-a8f5-f2400216d0d4")
 	)
 	(wire
 		(pts
@@ -1463,16 +1138,6 @@
 			(type dash)
 		)
 		(uuid "2172edf7-8a58-4944-b222-061731b6250c")
-	)
-	(wire
-		(pts
-			(xy 106.68 78.74) (xy 105.41 78.74)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "386d572f-7740-4080-a908-94e1d4eb26c2")
 	)
 	(wire
 		(pts
@@ -1566,46 +1231,6 @@
 	)
 	(wire
 		(pts
-			(xy 116.84 88.9) (xy 116.84 91.44)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "84986e69-27cb-4267-804b-c19933270ce6")
-	)
-	(wire
-		(pts
-			(xy 158.75 96.52) (xy 144.78 96.52)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "85e8d2a5-ec32-4517-b9b8-b4b4cd7fd4a8")
-	)
-	(wire
-		(pts
-			(xy 111.76 78.74) (xy 116.84 78.74)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "879263d6-ed21-4feb-a8ad-93e16cf0dc5e")
-	)
-	(wire
-		(pts
-			(xy 144.78 78.74) (xy 144.78 96.52)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "8a846c5f-63b1-4c7b-b3a3-4b7a99bd21b2")
-	)
-	(wire
-		(pts
 			(xy 45.72 88.9) (xy 53.34 88.9)
 		)
 		(stroke
@@ -1626,26 +1251,6 @@
 	)
 	(wire
 		(pts
-			(xy 121.92 91.44) (xy 116.84 91.44)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ad2bb6d6-5e6c-48d9-b61e-e6f97ee6a76a")
-	)
-	(wire
-		(pts
-			(xy 121.92 88.9) (xy 121.92 91.44)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "b360cd52-e9b2-479a-943c-7557eee61347")
-	)
-	(wire
-		(pts
 			(xy 144.78 116.84) (xy 144.78 119.38)
 		)
 		(stroke
@@ -1653,16 +1258,6 @@
 			(type default)
 		)
 		(uuid "b644fc2c-562d-41bc-b9be-00acd75cd0b9")
-	)
-	(wire
-		(pts
-			(xy 116.84 81.28) (xy 116.84 78.74)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ce357946-589d-4a2e-a8c7-46086794623b")
 	)
 	(wire
 		(pts
@@ -1676,26 +1271,6 @@
 	)
 	(wire
 		(pts
-			(xy 121.92 81.28) (xy 121.92 78.74)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ddfdb591-8631-40e0-9383-2150417aad92")
-	)
-	(wire
-		(pts
-			(xy 121.92 78.74) (xy 144.78 78.74)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "de2a59f0-258b-4203-9604-1823ec5e7adf")
-	)
-	(wire
-		(pts
 			(xy 60.96 88.9) (xy 60.96 97.79)
 		)
 		(stroke
@@ -1706,16 +1281,6 @@
 	)
 	(wire
 		(pts
-			(xy 116.84 91.44) (xy 116.84 96.52)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "f7fe3f10-cb2d-483f-9636-b4762a51bae6")
-	)
-	(wire
-		(pts
 			(xy 55.88 88.9) (xy 55.88 97.79)
 		)
 		(stroke
@@ -1723,16 +1288,6 @@
 			(type default)
 		)
 		(uuid "fa18b652-dfee-4587-94fe-a0094a605af3")
-	)
-	(wire
-		(pts
-			(xy 116.84 78.74) (xy 121.92 78.74)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "fadf9976-aa67-4e2e-8bdf-ed13a643061a")
 	)
 	(global_label "SD0_CMD"
 		(shape input)
@@ -1834,28 +1389,6 @@
 		(uuid "8340952b-0ab3-4619-8ff0-ceca81f29bc4")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 55.88 107.95 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "P3.3V"
-		(shape input)
-		(at 105.41 78.74 180)
-		(effects
-			(font
-				(size 1.524 1.524)
-			)
-			(justify right)
-		)
-		(uuid "83ecd91e-a40a-4daf-9dc4-2bb04fa30b5f")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 105.41 78.74 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -2229,10 +1762,6 @@
 		)
 		(instances
 			(project "mimic"
-				(path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abd38f2"
-					(reference "RN?")
-					(unit 1)
-				)
 				(path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005ac0a2a0"
 					(reference "RN7")
 					(unit 1)
@@ -2463,391 +1992,6 @@
 			(project "mimic"
 				(path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005ac0a2a0"
 					(reference "J4")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:Ferrite_Bead_Small")
-		(at 109.22 78.74 270)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "00000000-0000-0000-0000-00005d5be84b")
-		(property "Reference" "FB1"
-			(at 109.22 72.7202 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "600R"
-			(at 109.22 75.0316 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Inductor_SMD:L_0402_1005Metric"
-			(at 109.22 76.962 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 109.22 78.74 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 109.22 78.74 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Mfg" "Murata Electronics North America"
-			(at 109.22 78.74 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "PN" "BLM15AG601SN1D"
-			(at 109.22 78.74 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "d12e6ed3-2444-4cbb-9a07-a00c030a8a58")
-		)
-		(pin "2"
-			(uuid "82311744-9850-4337-ad21-6b9af33642c5")
-		)
-		(instances
-			(project "mimic"
-				(path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005ac0a2a0"
-					(reference "FB1")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
-		(at 116.84 85.09 0)
-		(mirror x)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "00000000-0000-0000-0000-00005d5bf444")
-		(property "Reference" "C70"
-			(at 113.9444 83.9216 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Value" "100nF"
-			(at 113.9444 86.233 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
-			(at 117.8052 81.28 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 116.84 85.09 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 116.84 85.09 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Mfg" "Samsung Electro-Mechanics"
-			(at 116.84 85.09 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "PN" "CL03A104KQ3NNNC"
-			(at 116.84 85.09 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "3202e73f-6077-4b53-9d85-521f9840b40e")
-		)
-		(pin "2"
-			(uuid "d2f49e0e-d0b1-45ed-b577-8482910225e1")
-		)
-		(instances
-			(project "mimic"
-				(path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005ac0a2a0"
-					(reference "C70")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "gkl_power:GND")
-		(at 116.84 96.52 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "00000000-0000-0000-0000-00005d5c1fc1")
-		(property "Reference" "#PWR0159"
-			(at 116.84 102.87 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "GND"
-			(at 116.9162 99.7204 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 114.3 105.41 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 116.84 96.52 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 116.84 96.52 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "ae1bf42b-0d46-4402-98cd-88ca1e37902f")
-		)
-		(instances
-			(project "mimic"
-				(path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005ac0a2a0"
-					(reference "#PWR0159")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
-		(at 121.92 85.09 180)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "00000000-0000-0000-0000-00005e89f19a")
-		(property "Reference" "C29"
-			(at 124.841 83.9216 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Value" "10uF"
-			(at 124.841 86.233 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
-			(at 120.9548 81.28 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 121.92 85.09 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 121.92 85.09 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Mfg" "Murata Electronics North America"
-			(at 121.92 85.09 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "PN" "GRM155R60J106ME15D"
-			(at 121.92 85.09 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "dd8e78ba-fbfa-4742-b089-1988a08fd221")
-		)
-		(pin "2"
-			(uuid "b0164e3f-bfd4-4942-8401-04542da57531")
-		)
-		(instances
-			(project "mimic"
-				(path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005ac0a2a0"
-					(reference "C29")
-					(unit 1)
-				)
-				(path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005d1738db"
-					(reference "C?")
 					(unit 1)
 				)
 			)
