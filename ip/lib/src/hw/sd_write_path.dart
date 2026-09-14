@@ -56,6 +56,7 @@ import 'sd_read_path.dart'
         sdBlockWords,
         sdRequestBits,
         sdRequestBlocksBits,
+        sdRequestEpochBits,
         sdRequestOpBits,
         sdRequestSeqBits,
         sdRequestSeqNone;
@@ -111,8 +112,9 @@ const int sdWriteAckFifoDepth = 4;
 /// 4194304 clocks is 168 ms at 25 MHz. A Linux mmc host computes the write
 /// timeout of an SD card from the CSD and uses 250 ms for a card that asks
 /// for no more, so the card gives up before the host does. The value is
-/// four times the read timeout because a write costs the runtime a disk
-/// write as well as a USB round trip.
+/// The read and write paths use the same limit. A write costs the runtime a
+/// disk write as well as a USB round trip, but both paths must tolerate the
+/// same host scheduling stalls.
 ///
 /// A test gives a small number here so that the timeout is reachable in a
 /// simulation.
@@ -186,7 +188,11 @@ class MimicSdWritePath extends BridgeModule {
             'timeout of 0 or 1 clock gives up before an answer can arrive.',
       );
     }
-    if (sdRequestOpBits + sdRequestSeqBits + sdRequestBlocksBits > 32) {
+    if (sdRequestOpBits +
+            sdRequestEpochBits +
+            sdRequestSeqBits +
+            sdRequestBlocksBits >
+        32) {
       throw StateError(
         'Word 0 of a record holds a $sdRequestOpBits bit opcode, a '
         '$sdRequestSeqBits bit sequence tag and a $sdRequestBlocksBits bit '
@@ -232,6 +238,7 @@ class MimicSdWritePath extends BridgeModule {
 
     createPort('start', PortDirection.input);
     createPort('lba', PortDirection.input, width: sdCommandArgBits);
+    createPort('epoch', PortDirection.input, width: sdRequestEpochBits);
     createPort('abort', PortDirection.input);
 
     // The receive side of the link. `rx_byte` holds one byte of the block
@@ -430,6 +437,7 @@ class MimicSdWritePath extends BridgeModule {
     final reqWord0 = [
       Const(1, width: sdRequestBlocksBits),
       seq,
+      input('epoch'),
       reqOp,
     ].swizzle().named('write_req_word0');
     output('req_data') <= [lbaReg, reqWord0].swizzle();

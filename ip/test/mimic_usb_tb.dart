@@ -260,8 +260,13 @@ class MimicUsbTb {
 Future<MimicUsbTb> buildMimicUsbTb(
   String name, {
   int maxSimTime = 400000000,
+  int cmdStallCycles = HarborUsbFsDevice.ep1StartStallMax,
 }) async {
-  final soc = buildMimicSoc(name: name, tbCmdPorts: false);
+  final soc = buildMimicSoc(
+    name: name,
+    tbCmdPorts: false,
+    cmdStallCycles: cmdStallCycles,
+  );
 
   final clk = SimpleClockGenerator(10).clk;
   final reset = Logic(name: 'reset');

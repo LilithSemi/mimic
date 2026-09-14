@@ -34,10 +34,11 @@ const int sdTestLba = 0x00001234;
 /// Word 0 of the record that the [seq] th read of a card must post.
 ///
 /// The block count is 1 in bits 31 to 16, the SEQUENCE TAG is in bits 15
-/// to 8 and the opcode is 1, read_blocks, in bits 7 to 0. The tag counts
-/// the reads that the card took, and it starts at 1, because the tag 0
-/// names no request at all.
-int sdRecordWord0(int seq) => 0x00010001 | (seq << 8);
+/// to 8, the card generation is in bits 7 to 4 and the opcode is 1,
+/// read_blocks, in bits 3 to 0. The tag counts the reads that the card took,
+/// and it starts at 1, because the tag 0 names no request at all.
+int sdRecordWord0(int seq, {int epoch = 0}) =>
+    0x00010001 | (seq << 8) | ((epoch & 0x0F) << 4);
 
 /// Word 0 of the block the tests push.
 ///
@@ -126,6 +127,7 @@ class SdReadBridge extends BridgeModule {
     this.forceTagFull = false,
     int readTimeoutClocks = sdTestTimeoutClocks,
     int writeTimeoutClocks = sdTestWriteTimeoutClocks,
+    int streamBlocks = sdStreamRecordBlocks,
     this.cacheLines = sdCacheDefaultLines,
     String name = 'read_bridge',
   }) : super(
@@ -147,6 +149,7 @@ class SdReadBridge extends BridgeModule {
     createPort('wb_sel', PortDirection.input, width: 4);
     createPort('sd_cmd_in', PortDirection.input);
     createPort('sd_dat_in', PortDirection.input);
+    createPort('num_blocks', PortDirection.input, width: sdCommandArgBits);
     createPort('tag_visible', PortDirection.input);
     addOutput('wb_ack');
     addOutput('wb_miso', width: 32);
@@ -175,6 +178,7 @@ class SdReadBridge extends BridgeModule {
       name: 'sd_card_device',
       readTimeoutClocks: readTimeoutClocks,
       writeTimeoutClocks: writeTimeoutClocks,
+      streamBlocks: streamBlocks,
       cacheLines: cacheLines,
     );
     addSubModule(card);
@@ -231,6 +235,8 @@ class SdReadBridge extends BridgeModule {
     card.input('csd').srcConnection! <=
         Const(sdCardCsdValue, width: sdResponseRegBits);
     card.input('csd_valid').srcConnection! <= Const(0);
+    card.input('num_blocks').srcConnection! <= input('num_blocks');
+    card.input('num_blocks_valid').srcConnection! <= Const(1);
 
     // The card state and the four bring-up counters, on the roads the SoC
     // gives them. The CSR slave needs these inputs driven.
@@ -534,8 +540,10 @@ Future<SdReadBench> setUpSdReadBench({
   bool forceTagFull = false,
   int readTimeoutClocks = sdTestTimeoutClocks,
   int writeTimeoutClocks = sdTestWriteTimeoutClocks,
+  int streamBlocks = sdStreamRecordBlocks,
   int cacheLines = sdCacheDefaultLines,
   bool parkSdClock = false,
+  int capacityBlocks = sdCardCapacityBlocks,
 }) async {
   final bridge = SdReadBridge(
     breakDataCrossing: breakDataCrossing,
@@ -543,6 +551,7 @@ Future<SdReadBench> setUpSdReadBench({
     forceTagFull: forceTagFull,
     readTimeoutClocks: readTimeoutClocks,
     writeTimeoutClocks: writeTimeoutClocks,
+    streamBlocks: streamBlocks,
     cacheLines: cacheLines,
   );
   final sdClk = Logic(name: 'sd_clk');
@@ -556,6 +565,7 @@ Future<SdReadBench> setUpSdReadBench({
   final dat = Logic(name: 'wb_dat', width: 32);
   final sel = Logic(name: 'wb_sel', width: 4);
   final tagVisible = Logic(name: 'tag_visible');
+  final numBlocks = Logic(name: 'num_blocks', width: sdCommandArgBits);
 
   // One SD clock period is 10 time units, which is what the host model
   // drives. 6 is not a whole part of it, so the two domains drift against
@@ -574,6 +584,7 @@ Future<SdReadBench> setUpSdReadBench({
   bridge.input('wb_dat').srcConnection! <= dat;
   bridge.input('wb_sel').srcConnection! <= sel;
   bridge.input('tag_visible').srcConnection! <= tagVisible;
+  bridge.input('num_blocks').srcConnection! <= numBlocks;
   await bridge.build();
 
   final host = SdHost(
@@ -604,6 +615,7 @@ Future<SdReadBench> setUpSdReadBench({
   dat.inject(0);
   sel.inject(0xF);
   tagVisible.inject(1);
+  numBlocks.inject(capacityBlocks);
   Simulator.setMaxSimTime(40000000);
   unawaited(Simulator.run());
   // One tick with the reset low, and then the edge.
@@ -736,11 +748,18 @@ Future<void> walkToTran(SdReadBench b) async {
 /// Word 0 comes from REQ and word 1 from REQ_HI. NEITHER read has a side
 /// effect, so the record goes away only on the WRITE of REQ_POP that ends
 /// this helper. No access between the three changes anything.
-Future<({int word0, int lba, int seq})> takeRecord(SdReadBench b) async {
+Future<({int word0, int lba, int seq, int epoch})> takeRecord(
+  SdReadBench b,
+) async {
   final word0 = await wbRead(b, MimicReg.req);
   final lba = await wbRead(b, MimicReg.reqHi);
   await wbWrite(b, MimicReg.reqPop, MimicReqPop.pop);
-  return (word0: word0, lba: lba, seq: (word0 >> 8) & 0xFF);
+  return (
+    word0: word0,
+    lba: lba,
+    seq: (word0 >> 8) & 0xFF,
+    epoch: (word0 >> 4) & 0x0F,
+  );
 }
 
 /// Pushes one block into the data channel, the way the runtime does.
@@ -799,6 +818,7 @@ Future<void> answerRecord(
   SdReadBench b,
   List<int> bytes, {
   required int expectLba,
+  int expectBlocks = 1,
 }) async {
   final record = await takeRecord(b);
   expect(
@@ -807,16 +827,107 @@ Future<void> answerRecord(
     reason: 'the card asked for another block than the one the host wants.',
   );
   expect(
-    record.word0 & 0xFF,
+    record.word0 & 0x0F,
     sdRequestOpReadBlocks,
     reason: 'the record carries an opcode the runtime does not know.',
   );
   expect(
     (record.word0 >> 16) & 0xFFFF,
-    1,
-    reason: 'a record asks for ONE block, whatever command started it.',
+    expectBlocks,
+    reason: 'the record does not ask for the blocks the test expects.',
   );
   await pushBlock(b, sdBlockWordsOf(bytes), tag: record.seq);
+}
+
+/// A runtime that answers the CHUNK records of one CMD18 stream.
+///
+/// A CMD18 record asks for a whole chunk of [sdStreamRecordBlocks] blocks,
+/// and the card then takes block after block off the data channel against
+/// the ONE sequence tag of that record. A runtime for a stream therefore
+/// holds three things: the tag of the record it is serving, the blocks
+/// that record still owes, and the next block to push.
+///
+/// This is the shape the Zig runtime has. It reads the record, pushes the
+/// blocks of the chunk as the channel makes room, and it stops as soon as
+/// the card posts another record, because a new record proves that the
+/// host stopped the stream.
+class SdStreamRuntime {
+  /// The bench this runtime drives the bus of.
+  final SdReadBench b;
+
+  /// The first block of the stream.
+  final int lba;
+
+  /// Blocks this runtime pushes at most.
+  ///
+  /// A host that stops a stream with CMD12 reads fewer blocks than the
+  /// card asked for. The real runtime stops with it, and this bound is how
+  /// a test says where.
+  final int limit;
+
+  /// Records taken off the request channel.
+  int records = 0;
+
+  /// Blocks pushed into the data channel.
+  int pushed = 0;
+
+  /// The sequence tag of the record being served, or null while none is
+  /// held.
+  int? tag;
+
+  /// Blocks the held record still owes.
+  int owed = 0;
+
+  SdStreamRuntime(this.b, {required this.lba, required this.limit});
+
+  /// Takes the record that waits and pushes what the channel holds room
+  /// for.
+  ///
+  /// It returns as soon as the channel is full or the record owes nothing
+  /// more, so a caller drives the SD clock between two calls and the card
+  /// takes the blocks off.
+  Future<void> feed() async {
+    while (pushed < limit) {
+      if (owed == 0) {
+        if (await wbRead(b, MimicReg.reqCount) == 0) return;
+        final record = await takeRecord(b);
+        records++;
+        expect(
+          record.word0 & 0x0F,
+          sdRequestOpReadBlocks,
+          reason: 'the record carries an opcode the runtime does not know.',
+        );
+        expect(
+          record.lba,
+          lba + pushed,
+          reason: 'the card asked for another block than the next one.',
+        );
+        owed = (record.word0 >> 16) & 0xFFFF;
+        expect(owed, greaterThan(0), reason: 'a record asks for no block.');
+        tag = record.seq;
+      }
+      if (await wbRead(b, MimicReg.dataInCount) < sdBlockWords) return;
+      await pushBlock(
+        b,
+        sdBlockWordsOf(sdTestBlockBytesFor(lba + pushed)),
+        tag: tag!,
+      );
+      pushed++;
+      owed--;
+    }
+  }
+
+  /// Takes any record that is still on the channel.
+  ///
+  /// The card asks for a new chunk whenever one runs out, so a stream that
+  /// the host stopped can leave one record standing. The real runtime
+  /// takes it off on its next pass.
+  Future<void> drain() async {
+    while (await wbRead(b, MimicReg.reqCount) != 0) {
+      await takeRecord(b);
+      records++;
+    }
+  }
 }
 
 /// The bytes of block [lba] in the image the multi-block tests serve.
@@ -861,7 +972,7 @@ Future<void> ackWrite(SdReadBench b, int tag, {bool fail = false}) async {
 }
 
 /// The opcode field of word 0 of a record.
-int sdRecordOp(int word0) => word0 & 0xFF;
+int sdRecordOp(int word0) => word0 & 0x0F;
 
 /// Pushes one FILL into the data channel, the way a runtime pushes a block
 /// that nobody asked for.

@@ -196,6 +196,31 @@ void main() {
     await Simulator.endSimulation();
   });
 
+  test('CMD0 advances the card generation in later requests', () async {
+    final b = await setUpSdReadBench();
+    await wbWrite(b, MimicReg.ctrl, MimicCtrl.enable);
+    await walkToTran(b);
+
+    await b.host.idle(sdCommandGapClocks);
+    await b.host.sendCommand(sdCmdReadSingleBlock, sdTestLba);
+    await b.host.receiveResponse(SdResponseKind.r1);
+    final first = await takeRecord(b);
+    expect(first.epoch, 0);
+    await pushBlock(b, sdBlockWordsOf(sdTestBlockBytes()), tag: first.seq);
+    await b.host.receiveDataBlock(timeoutClocks: 400);
+
+    // A second initialization sends another CMD0. The next request must
+    // identify a new generation so the runtime drops its old cache model.
+    await walkToTran(b);
+    await b.host.idle(sdCommandGapClocks);
+    await b.host.sendCommand(sdCmdReadSingleBlock, sdTestLba + 1);
+    await b.host.receiveResponse(SdResponseKind.r1);
+    final second = await takeRecord(b);
+    expect(second.epoch, 1);
+
+    await Simulator.endSimulation();
+  });
+
   // The regression test of Critical 2 of the read path review. One foreign
   // read between the two reads of a record made the runtime read word 0
   // twice, so it served the block address 0x00010001 for every read that
@@ -236,6 +261,13 @@ void main() {
         1,
         reason: 'no read of any address may take the record.',
       );
+      expect(await wbRead(b, MimicReg.reqSnapshotCount), 1);
+      expect(await wbRead(b, MimicReg.reqSnapshot), sdRecordWord0(1));
+      expect(
+        await wbRead(b, MimicReg.reqSnapshotHi),
+        0xABCD,
+        reason: 'the contiguous snapshot aliases must name one record.',
+      );
 
       // A write of REQ_POP with the pop bit CLEAR is also a no-op.
       await wbWrite(b, MimicReg.reqPop, 0);
@@ -266,6 +298,9 @@ void main() {
       // the many reads above took none of the others.
       expect(await wbRead(b, MimicReg.req), 0);
       expect(await wbRead(b, MimicReg.reqHi), 0);
+      expect(await wbRead(b, MimicReg.reqSnapshotCount), 0);
+      expect(await wbRead(b, MimicReg.reqSnapshot), 0);
+      expect(await wbRead(b, MimicReg.reqSnapshotHi), 0);
       await Simulator.endSimulation();
     },
   );

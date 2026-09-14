@@ -9,7 +9,7 @@ on writes.
 | Offset | Name | Access | Function |
 | ------ | ---- | ------ | -------- |
 | `0x00` | `ID` | RO | `0x4D494D43`, which is `MIMC`. |
-| `0x04` | `VERSION` | RO | Packed interface version. Current value is `0x00010000`. |
+| `0x04` | `VERSION` | RO | Packed interface version. Current value is `0x00010100`. |
 | `0x08` | `CTRL` | RW | Card control bits. |
 | `0x0C` | `STATUS` | RO | Reserved. Reads zero. |
 | `0x10` | `NUM_BLOCKS` | RW | Published capacity in blocks. |
@@ -44,9 +44,16 @@ on writes.
 | `0x84` | `DBG_CACHE_MISS` | RO | Reads that posted a request. |
 | `0x88` | `DBG_CACHE_FILL` | RO | Completed cache fills. |
 | `0x8C` | `CACHE_LINES` | RO | Cache lines in this bitstream. |
+| `0x90` | `REQ_SNAPSHOT_COUNT` | RO | Alias of `REQ_COUNT` beside the snapshot words. |
+| `0x94` | `REQ_SNAPSHOT` | RO | Alias of `REQ` for one burst read. |
+| `0x98` | `REQ_SNAPSHOT_HI` | RO | Alias of `REQ_HI` for one burst read. |
+| `0x9C` | `DBG_READ_START` | RO | Demand data frames started on DAT. |
+| `0xA0` | `DBG_READ_DONE` | RO | Demand data frames completed on DAT. |
+| `0xA4` | `DBG_READ_DROP` | RO | Unmatched runtime blocks discarded. |
+| `0xA8` | `DBG_READ_ABORT` | RO | Reads stopped by the SD host. |
 
-`mimic-cli info` prints the main register set through `DBG_SD_RESP`. The serve
-statistics read the cache counters separately.
+`mimic-cli info` prints the register set through `DBG_READ_ABORT`. The serve
+statistics also use the cache counters for the hit-rate report.
 
 ## CTRL bits
 
@@ -75,7 +82,7 @@ Write a one to clear a set event bit.
 A request has two words:
 
 ```
-word 0: operation[7:0], sequence[15:8], blocks[31:16]
+word 0: operation[3:0], card generation[7:4], sequence[15:8], blocks[31:16]
 word 1: block address[31:0]
 ```
 
@@ -84,6 +91,10 @@ Operation `0x01` reads blocks. Operation `0x02` writes one block. Operation
 
 Read `REQ`, read `REQ_HI`, then write bit 0 to `REQ_POP`. The two reads do not
 change the request. A block address is an LBA, not a byte address.
+
+CMD0 advances the card generation. The runtime clears its cache model when
+the generation changes. This prevents a speculative line from the prior card
+initialization from suppressing a required response.
 
 ## Data channel rules
 

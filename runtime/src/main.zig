@@ -10,16 +10,42 @@ const Device = transport.Device;
 /// Blocks the serve loop fills into the card cache after each read when
 /// nobody names a number.
 ///
-/// THREE, which is what the data channel holds beside the block that
-/// answers the record. The channel holds four whole blocks, the runtime
-/// pushes the answer and then the fills, and a fill that finds no room is
-/// dropped, so a larger number here only counts drops.
+/// This is the LENGTH OF THE WINDOW and not the size of a batch. One batch
+/// is always at most the four blocks the data channel holds, and the loop
+/// sends batch after batch while the card takes them. The window is what
+/// says how far past the record the loop may run before it waits for the
+/// host to prove where it is again.
 ///
-/// It is not free. A large read ahead on a RANDOM workload spends the link
-/// on blocks nobody reads. Boot is not random: it is one CMD18 stream
-/// after another, and a stream costs one record for every read ahead depth
-/// plus one blocks instead of one record per block.
-const DEFAULT_READ_AHEAD: u16 = 3;
+/// It is ZERO, which turns read ahead OFF, and that is a measurement and
+/// not a preference. On the SG2000, every setting above zero made the boot
+/// WORSE, whatever the batch size:
+///
+///     read ahead 0            23553 blocks in 92 s, 256 blocks a second
+///     read ahead 8, batch 1   17360 blocks in 92 s, 189 blocks a second
+///     read ahead 3, batch 4     566 blocks in 92 s, the card stops
+///     read ahead 64, batch 4    510 blocks in 122 s, the card stops
+///
+/// The runtime was never the late party in those runs: it waited for FIFO
+/// space zero times. `mimic-cli pushtest` shows the transport carries
+/// every one of these shapes with no corruption, so the fault was in the
+/// card read path and not in the link or in this policy.
+///
+/// The card fault is now found and fixed. `MimicSdReadPath` published
+/// `ready` for the second last clock of a block it was absorbing and then
+/// dropped the `start` that arrived on the last one, because the state
+/// machine reads `ready` one clock before it drives `start`. The card then
+/// held the DATA state with no read in it and answered no further command.
+/// Read ahead reached that window on nearly every command, because it is
+/// what leaves a block on the channel while the card is idle.
+///
+/// The numbers above were all taken with a card that was losing reads, so
+/// NONE of them can be reused. This stays at zero until a fresh run says
+/// what read ahead is now worth.
+///
+/// Read ahead is still the only thing that can lift this link past about
+/// 290 blocks a second, because a demand read cannot start the next block
+/// until the card has put this one on DAT.
+const DEFAULT_READ_AHEAD: u16 = 0;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -32,6 +58,7 @@ pub fn main(init: std.process.Init) !void {
     var read_only = false;
     var stats = false;
     var read_ahead: u16 = DEFAULT_READ_AHEAD;
+    var batch: u8 = serve.PUSH_BATCH_BLOCKS;
     while (args.next()) |a| {
         if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) {
             return usage(io, null);
@@ -41,6 +68,13 @@ pub fn main(init: std.process.Init) !void {
             read_only = true;
         } else if (std.mem.eql(u8, a, "--stats")) {
             stats = true;
+        } else if (std.mem.startsWith(u8, a, "--batch=")) {
+            const text = a["--batch=".len..];
+            batch = std.fmt.parseInt(u8, text, 10) catch
+                return usage(io, "--batch= needs a whole number of blocks");
+            if (batch == 0 or batch > serve.PUSH_BATCH_BLOCKS) {
+                return usage(io, "--batch= must name 1 to 16 blocks");
+            }
         } else if (std.mem.startsWith(u8, a, "--read-ahead=")) {
             const text = a["--read-ahead=".len..];
             read_ahead = std.fmt.parseInt(u16, text, 10) catch
@@ -72,6 +106,7 @@ pub fn main(init: std.process.Init) !void {
     const takes_image = is_capacity or is_serve;
     const known = std.mem.eql(u8, command, "version") or
         std.mem.eql(u8, command, "probe") or
+        std.mem.eql(u8, command, "pushtest") or
         std.mem.eql(u8, command, "info") or
         takes_image;
     if (!known) {
@@ -107,13 +142,20 @@ pub fn main(init: std.process.Init) !void {
     else
         null;
 
-    const device = Device.openUsb(io) catch |e| fail(out, e);
+    var opened = Device.openUsb(io) catch |e| fail(out, e);
+    // The transport owns the URB queue of the transaction that runs, so
+    // every caller drives the SAME one. A copy would have a queue of its
+    // own while sharing the handle, and a reap of one could then take a
+    // transfer of the other.
+    const device = &opened;
     defer device.close();
 
     if (std.mem.eql(u8, command, "version")) {
         cmdVersion(device, out) catch |e| fail(out, e);
     } else if (std.mem.eql(u8, command, "probe")) {
         cmdProbe(io, device, out) catch |e| fail(out, e);
+    } else if (std.mem.eql(u8, command, "pushtest")) {
+        cmdPushTest(io, device, out) catch |e| fail(out, e);
     } else if (is_capacity) {
         // The optional holds a plan whenever the command is `capacity`,
         // which the branch above already decided.
@@ -123,6 +165,7 @@ pub fn main(init: std.process.Init) !void {
             .read_only = read_only,
             .stats = stats,
             .read_ahead = read_ahead,
+            .batch = batch,
         }) catch |e| fail(out, e);
     } else {
         cmdInfo(device, out) catch |e| fail(out, e);
@@ -131,7 +174,7 @@ pub fn main(init: std.process.Init) !void {
 
 /// Reads ID and VERSION, verifies the MIMC magic, and prints the interface
 /// version decoded from major << 16 | minor << 8 | patch.
-fn cmdVersion(device: Device, out: *Io.Writer) !void {
+fn cmdVersion(device: *Device, out: *Io.Writer) !void {
     const id = try device.regRead(sd.REG_ID);
     if (id != sd.ID_MAGIC) {
         try out.print("ID = 0x{X:0>8}, expected 0x{X:0>8}\n", .{ id, sd.ID_MAGIC });
@@ -148,7 +191,7 @@ fn cmdVersion(device: Device, out: *Io.Writer) !void {
 /// the magic. Counts every op and every failure, prints stats, then PASS or
 /// FAIL. A failed op counts and the probe continues, so a flaky link shows a
 /// full picture instead of a dead run.
-fn cmdProbe(io: Io, device: Device, out: *Io.Writer) !void {
+fn cmdProbe(io: Io, device: *Device, out: *Io.Writer) !void {
     const id = try device.regRead(sd.REG_ID);
     if (id != sd.ID_MAGIC) return error.BadIdMagic;
     const ver = try device.regRead(sd.REG_VERSION);
@@ -202,21 +245,25 @@ fn cmdProbe(io: Io, device: Device, out: *Io.Writer) !void {
 
 /// Reads the whole CSR map and prints a name = value table, with the CTRL
 /// bits decoded.
-fn cmdInfo(device: Device, out: *Io.Writer) !void {
+fn cmdInfo(device: *Device, out: *Io.Writer) !void {
     const names = [_][]const u8{
-        "ID",         "VERSION",       "CTRL",     "STATUS",
-        "NUM_BLOCKS", "SCRATCH",       "REQ",      "REQ_COUNT",
-        "DATA_IN",    "DATA_IN_COUNT", "DATA_OUT", "DATA_OUT_COUNT",
-        "EVENT",      "IRQ_ENABLE",    "DBG_CMD",  "DBG_IN",
-        "DBG_RESET",  "CARD_STATE",    "CSD_0",    "CSD_1",
-        "CSD_2",      "CSD_3",         "SD_CLK",   "SD_CMD",
-        "SD_CRC_ERR", "SD_RESP",
+        "ID",         "VERSION",       "CTRL",        "STATUS",
+        "NUM_BLOCKS", "SCRATCH",       "REQ",         "REQ_COUNT",
+        "DATA_IN",    "DATA_IN_COUNT", "DATA_OUT",    "DATA_OUT_COUNT",
+        "EVENT",      "IRQ_ENABLE",    "DBG_CMD",     "DBG_IN",
+        "DBG_RESET",  "CARD_STATE",    "CSD_0",       "CSD_1",
+        "CSD_2",      "CSD_3",         "SD_CLK",      "SD_CMD",
+        "SD_CRC_ERR", "SD_RESP",       "REQ_HI",      "DATA_TAG",
+        "REQ_POP",    "DATA_OUT_POP",  "WRITE_ACK",   "DATA_FILL_LBA",
+        "CACHE_HIT",  "CACHE_MISS",    "CACHE_FILL",  "CACHE_LINES",
+        "REQ_SNAP_N", "REQ_SNAP",      "REQ_SNAP_HI", "READ_START",
+        "READ_DONE",  "READ_DROP",     "READ_ABORT",
     };
     // One burst over the whole block, REQ included. NO address of the map
     // has a side effect on read, so this walk cannot take a request away
     // from a `serve` loop that runs at the same time, whatever it covers.
     // The pop is a WRITE of REG_REQ_POP and this command writes nothing.
-    comptime std.debug.assert(names.len * 4 == sd.REG_DBG_SD_RESP + 4);
+    comptime std.debug.assert(names.len * 4 == sd.REG_DBG_READ_ABORT + 4);
     var words: [names.len]u32 = undefined;
     try device.readRegs(sd.REG_ID, &words);
     for (names, 0..) |name, i| {
@@ -382,7 +429,7 @@ fn warnRoundedDown(
 /// host once, and a write that the link dropped would give the host a
 /// wrong size with no other sign. `capacity` and `serve` both go through
 /// here, so the card reports one size and one only.
-fn applyCapacity(device: Device, out: *Io.Writer, plan: CapacityPlan) ![4]u32 {
+fn applyCapacity(device: *Device, out: *Io.Writer, plan: CapacityPlan) ![4]u32 {
     const words = sd.csdToWords(&plan.csd);
     try device.writeRegs(&.{
         .{ sd.REG_CSD_0, words[0] },
@@ -404,7 +451,7 @@ fn applyCapacity(device: Device, out: *Io.Writer, plan: CapacityPlan) ![4]u32 {
 
 /// Writes the four CSD registers, reads them back, and prints the capacity
 /// that the card now reports.
-fn cmdCapacity(device: Device, out: *Io.Writer, plan: CapacityPlan) !void {
+fn cmdCapacity(device: *Device, out: *Io.Writer, plan: CapacityPlan) !void {
     const id = try device.regRead(sd.REG_ID);
     if (id != sd.ID_MAGIC) return error.BadIdMagic;
 
@@ -434,6 +481,8 @@ const ServeOptions = struct {
     stats: bool,
     /// Blocks to fill into the card cache after each read.
     read_ahead: u16 = DEFAULT_READ_AHEAD,
+    /// Blocks that one transport transaction may carry.
+    batch: u8 = serve.PUSH_BATCH_BLOCKS,
 };
 
 /// Set by the stop signal handler.
@@ -483,7 +532,7 @@ fn openImage(io: Io, dir: Io.Dir, path: []const u8, read_only: bool) !Io.File {
 /// nothing will send.
 fn cmdServe(
     io: Io,
-    device: Device,
+    device: *Device,
     out: *Io.Writer,
     plan: CapacityPlan,
     path: []const u8,
@@ -497,11 +546,8 @@ fn cmdServe(
 
     _ = try applyCapacity(device, out, plan);
 
-    // The interface wants a mutable transport, and a copy of the transport
-    // holds the same io and the same USB handle.
-    var owned = device;
     var server: serve.Server = .{
-        .device = owned.device(),
+        .device = device.device(),
         .image = .{
             .io = io,
             .file = file,
@@ -511,6 +557,7 @@ fn cmdServe(
         .log = out,
         .options = .{
             .read_ahead = options.read_ahead,
+            .max_batch_blocks = options.batch,
             // The CLI drives real silicon, where a read of DATA_IN_COUNT
             // is a USB round trip and the channel drains on the SD clock.
             // See `serve.CLI_SPACE_POLL_WAIT_US`.
@@ -524,6 +571,11 @@ fn cmdServe(
     // the card holds is sized from it, and a card that reports a count the
     // model cannot hold turns the model off rather than model it wrong.
     try server.learnCache();
+
+    // Learn the full input credit while the card is still off. The first
+    // SD read then spends known-safe space instead of waiting for another
+    // USB register round trip on its critical path.
+    try server.learnDataInCredit();
 
     // An earlier run that stopped between the block and the acknowledgement
     // left the 512 bytes of that block on the write channel, and the card
@@ -545,9 +597,10 @@ fn cmdServe(
     installStopHandler();
     try printCapacity(out, "serving", plan.advertised_blocks);
     try out.print("image: {s}{s}\n", .{ path, if (options.read_only) " (read only)" else "" });
-    try out.print("cache: {d} lines on the card, read ahead {d} blocks\n", .{
+    try out.print("cache: {d} lines on the card, read ahead {d} blocks, batch {d}\n", .{
         server.cache.lines,
         options.read_ahead,
+        options.batch,
     });
     try out.print("press ctrl-c to stop\n", .{});
     try out.flush();
@@ -557,8 +610,12 @@ fn cmdServe(
         // The poll is a USB round trip of its own, so an idle loop paces
         // itself on the link and does not spin on the CPU.
         const taken = try server.servePending();
-        if (taken == 0) try server.continueReadAhead();
-        if (taken != 0) try out.flush();
+        if (taken == 0) {
+            try server.continueReadAhead();
+            io.sleep(Io.Duration.fromMicroseconds(serve.CLI_IDLE_POLL_WAIT_US), .awake) catch {};
+        } else {
+            try out.flush();
+        }
     }
 
     server.disable() catch |e| {
@@ -572,6 +629,9 @@ fn cmdServe(
         // side. A read of these addresses has no side effect.
         printCacheStats(out, device) catch |e| {
             try out.print("WARNING: the cache counters could not be read: {s}\n", .{@errorName(e)});
+        };
+        printReadStats(out, device) catch |e| {
+            try out.print("WARNING: the read counters could not be read: {s}\n", .{@errorName(e)});
         };
     }
 
@@ -600,10 +660,49 @@ fn printServeStats(io: Io, out: *Io.Writer, stats: serve.Stats, start: Io.Clock.
         stats.refused,
         stats.polls,
     });
+    // Round trips per block is the number that caps this link. One round
+    // trip is about a millisecond on USB full speed whatever it carries,
+    // so a block that costs six of them can never go faster than 160
+    // blocks a second, however fast the FPGA and the SD clock are.
+    const moved = stats.blocks + stats.fills;
+    if (moved != 0) {
+        const per_block = @as(f64, @floatFromInt(stats.round_trips)) /
+            @as(f64, @floatFromInt(moved));
+        try out.print("stats: {d} round trips, {d:.2} per block\n", .{
+            stats.round_trips,
+            per_block,
+        });
+    } else {
+        try out.print("stats: {d} round trips\n", .{stats.round_trips});
+    }
     try out.print("stats: {d} blocks written, {d} blocks dropped\n", .{
         stats.written,
         stats.dropped,
     });
+    // A lost record is a read that nothing answered. It is counted from
+    // the sequence tags of the records that DID arrive, so it says what the
+    // card asked for and not what this side believes it asked for.
+    try out.print("stats: {d} records lost before the runtime saw them\n", .{
+        stats.records_lost,
+    });
+    try out.print("stats: {d} space polls, {d} the most one answer waited\n", .{
+        stats.space_polls,
+        stats.space_polls_max,
+    });
+    // A stream that a new record cut short. The card asks for a chunk of
+    // blocks in one record and the host may stop before the chunk runs
+    // out, and each of these is a chunk whose remaining blocks never went
+    // on the link.
+    try out.print(
+        "stats: {d} streams cut short by a new record, {d} stalled\n",
+        .{ stats.streams_cut, stats.streams_stalled },
+    );
+    // A chunk boundary the loop crossed without going back to the request
+    // channel. Each one saved a round trip and the idle polls behind it.
+    try out.print(
+        "stats: {d} stream chunks carried on in place\n",
+        .{stats.streams_continued},
+    );
     try out.print("stats: {d} fills, {d} fills skipped, {d} model resets\n", .{
         stats.fills,
         stats.fills_skipped,
@@ -635,7 +734,7 @@ fn printServeStats(io: Io, out: *Io.Writer, stats: serve.Stats, start: Io.Clock.
 /// that it answered by itself: a hit posts no record, so nothing of it
 /// reaches this side. They wrap at 16 bits, so a long run reports a
 /// remainder and not a total, and the RATIO is what a reader wants.
-fn printCacheStats(out: *Io.Writer, device: Device) !void {
+fn printCacheStats(out: *Io.Writer, device: *Device) !void {
     const hits = try device.regRead(sd.REG_DBG_CACHE_HIT);
     const misses = try device.regRead(sd.REG_DBG_CACHE_MISS);
     const fills = try device.regRead(sd.REG_DBG_CACHE_FILL);
@@ -649,6 +748,245 @@ fn printCacheStats(out: *Io.Writer, device: Device) !void {
     const rate = @as(f64, @floatFromInt(hits)) * 100.0 /
         @as(f64, @floatFromInt(reads));
     try out.print("cache: {d:.1}% of reads cost no round trip\n", .{rate});
+}
+
+/// Checks how large ONE transport transaction can be before the device
+/// stops reading it whole.
+///
+/// It streams to SCRATCH and not to DATA_IN, so nothing fills, nothing has
+/// to drain, and the test can repeat as often as it likes. A stream holds
+/// its address, so every word of a group overwrites SCRATCH and the value
+/// that stays is the LAST word of the LAST group. A device that lost, kept
+/// or reordered part of the transfer reads back something else, and a
+/// device whose command parser came out of step reads back a wrong ID as
+/// well.
+///
+/// It exists because a batch of four blocks worked in every simulation and
+/// then stopped the card on real hardware, and a two minute boot is a slow
+/// way to find the size at which a transfer stops arriving.
+/// Prints what a timed run of `rounds` transactions moved.
+///
+/// `bytes` is the payload of ONE round. The rate is what reached the
+/// device, so it compares against the bulk ceiling of the link: full speed
+/// with 32-byte packets carries about 832 KB/s, and 64-byte packets carry
+/// about 1216 KB/s.
+fn printRate(
+    out: *Io.Writer,
+    io: Io,
+    start: Io.Clock.Timestamp,
+    rounds: usize,
+    bytes: usize,
+) !void {
+    const elapsed_ns: u64 = @intCast(
+        start.durationTo(Io.Clock.Timestamp.now(io, .awake)).raw.nanoseconds,
+    );
+    if (elapsed_ns == 0) return;
+    const seconds = @as(f64, @floatFromInt(elapsed_ns)) / std.time.ns_per_s;
+    const moved = @as(f64, @floatFromInt(rounds * bytes));
+    const per_round_us = seconds * 1_000_000.0 / @as(f64, @floatFromInt(rounds));
+    try out.print(
+        "    {d:.3} s, {d:.1} us per round, {d:.1} KiB/s on the link\n",
+        .{ seconds, per_round_us, moved / seconds / 1024.0 },
+    );
+}
+
+fn cmdPushTest(io: Io, device: *Device, out: *Io.Writer) !void {
+    const id = try device.regRead(sd.REG_ID);
+    if (id != sd.ID_MAGIC) return error.BadIdMagic;
+
+    const WORDS_PER_BLOCK: usize = sd.BLOCK_SIZE / 4;
+    const ROUNDS: usize = 64;
+    // Batch sizes the sweep tries. It runs from one block to the largest
+    // batch one transaction carries, so the time per byte can be read off
+    // the slope. A link whose cost is per BYTE has the same slope at every
+    // size, and a bigger transfer then buys nothing.
+    const SIZES = [_]usize{ 1, 2, 4, 8, 16 };
+    const MAX_BLOCKS: usize = SIZES[SIZES.len - 1];
+    var payload: [MAX_BLOCKS * (sd.BLOCK_SIZE / 4)]u32 = undefined;
+    var setup: [MAX_BLOCKS][2][2]u32 = undefined;
+    var groups: [MAX_BLOCKS]mimic.device.WriteStreamGroup = undefined;
+
+    const iface = device.device();
+
+    // What ONE round trip costs with almost no payload. A read is a
+    // 7-byte command out and a 4-byte answer back, which is one packet in
+    // each direction, so this is the fixed cost of a transaction. Read it
+    // beside the time per byte of the sweep below: the two together say
+    // whether the link is held up by the number of transfers or by the
+    // number of PACKETS.
+    {
+        const TRIPS: usize = 512;
+        const start = Io.Clock.Timestamp.now(io, .awake);
+        for (0..TRIPS) |_| {
+            if (try device.regRead(sd.REG_ID) != sd.ID_MAGIC) return error.BadIdMagic;
+        }
+        const elapsed_ns: u64 = @intCast(
+            start.durationTo(Io.Clock.Timestamp.now(io, .awake)).raw.nanoseconds,
+        );
+        const per_us = @as(f64, @floatFromInt(elapsed_ns)) /
+            @as(f64, @floatFromInt(TRIPS)) / 1000.0;
+        try out.print(
+            "round trip: {d} reads, {d:.1} us each\n",
+            .{ TRIPS, per_us },
+        );
+    }
+
+    for (SIZES) |blocks| {
+        var bad_value: usize = 0;
+        var bad_id: usize = 0;
+        var failed: usize = 0;
+        const start = Io.Clock.Timestamp.now(io, .awake);
+        for (0..ROUNDS) |round| {
+            for (0..blocks) |i| {
+                for (0..WORDS_PER_BLOCK) |w| {
+                    payload[i * WORDS_PER_BLOCK + w] =
+                        @intCast((round << 20) | (i << 12) | w);
+                }
+                setup[i] = .{
+                    .{ sd.REG_SCRATCH, 0 },
+                    .{ sd.REG_SCRATCH, 0 },
+                };
+                groups[i] = .{
+                    .before = setup[i][0..2],
+                    .addr = sd.REG_SCRATCH,
+                    .values = payload[i * WORDS_PER_BLOCK ..][0..WORDS_PER_BLOCK],
+                };
+            }
+            iface.writeStreamGroups(groups[0..blocks]) catch {
+                failed += 1;
+                continue;
+            };
+            const want = payload[blocks * WORDS_PER_BLOCK - 1];
+            const got = device.regRead(sd.REG_SCRATCH) catch {
+                failed += 1;
+                continue;
+            };
+            if (got != want) bad_value += 1;
+            const back = device.regRead(sd.REG_ID) catch {
+                failed += 1;
+                continue;
+            };
+            if (back != sd.ID_MAGIC) bad_id += 1;
+        }
+        const bytes = blocks * sd.BLOCK_SIZE + blocks * (2 * 11 + 7);
+        try out.print(
+            "{d} block batch ({d} bytes): {d} rounds, {d} wrong value, {d} wrong ID, {d} failed {s}\n",
+            .{
+                blocks,
+                bytes,
+                ROUNDS,
+                bad_value,
+                bad_id,
+                failed,
+                if (bad_value + bad_id + failed == 0) "ok" else "FAIL",
+            },
+        );
+        // What the LINK did. One round is the push and the two register
+        // reads that check it, which is the shape of the serve loop, so
+        // the rate here is the rate a block push can reach. The byte count
+        // is the payload of the push and does NOT count the reads, so the
+        // figure compares straight against the bulk ceiling of the link.
+        printRate(out, io, start, ROUNDS, bytes) catch {};
+    }
+
+    // A frame that FOLLOWS a stream inside one transfer. Nothing on the
+    // working path has ever done this: a stream has always been the last
+    // frame of its transfer. A device that mis-counts the stream reads the
+    // header of the frame behind it at the wrong offset, and then writes
+    // whatever it makes of it into whatever register it makes of it.
+    {
+        const MARK: u32 = 0xDEADBEEF;
+        var bad: usize = 0;
+        var bad_id: usize = 0;
+        for (0..ROUNDS) |round| {
+            for (0..WORDS_PER_BLOCK) |w| {
+                payload[w] = @intCast((round << 20) | w);
+            }
+            const after = [_][2]u32{.{ sd.REG_SCRATCH, MARK }};
+            iface.writeRegsStreamRegs(
+                &.{},
+                sd.REG_SCRATCH,
+                payload[0..WORDS_PER_BLOCK],
+                &after,
+            ) catch {
+                bad += 1;
+                continue;
+            };
+            const got = device.regRead(sd.REG_SCRATCH) catch {
+                bad += 1;
+                continue;
+            };
+            if (got != MARK) bad += 1;
+            const back = device.regRead(sd.REG_ID) catch {
+                bad += 1;
+                continue;
+            };
+            if (back != sd.ID_MAGIC) bad_id += 1;
+        }
+        try out.print(
+            "one block then a trailing register frame: {d} rounds, {d} wrong, {d} wrong ID {s}\n",
+            .{ ROUNDS, bad, bad_id, if (bad + bad_id == 0) "ok" else "FAIL" },
+        );
+    }
+
+    // A READ frame that follows a stream. This is the shape the serve loop
+    // uses to answer a record and poll for the next one in one transfer.
+    {
+        var bad: usize = 0;
+        var groups1: [1]mimic.device.WriteStreamGroup = undefined;
+        var status: [sd.STATUS_WORDS]u32 = undefined;
+        for (0..ROUNDS) |round| {
+            for (0..WORDS_PER_BLOCK) |w| {
+                payload[w] = @intCast((round << 20) | w);
+            }
+            setup[0] = .{ .{ sd.REG_SCRATCH, 0 }, .{ sd.REG_SCRATCH, 0 } };
+            groups1[0] = .{
+                .before = setup[0][0..1],
+                .addr = sd.REG_SCRATCH,
+                .values = payload[0..WORDS_PER_BLOCK],
+            };
+            iface.writeStreamGroupsReadPop(
+                &groups1,
+                sd.REG_STATUS_FIRST,
+                sd.REG_REQ_POP,
+                &status,
+            ) catch {
+                bad += 1;
+                continue;
+            };
+            // CACHE_LINES is a build constant of the gateware, so its word
+            // of the window says whether the whole window landed right.
+            const lines_index = (sd.REG_CACHE_LINES - sd.REG_STATUS_FIRST) / 4;
+            if (status[lines_index] == 0) bad += 1;
+            const got = device.regRead(sd.REG_SCRATCH) catch {
+                bad += 1;
+                continue;
+            };
+            if (got != payload[WORDS_PER_BLOCK - 1]) bad += 1;
+        }
+        try out.print(
+            "one block then a trailing READ frame: {d} rounds, {d} wrong {s}\n",
+            .{ ROUNDS, bad, if (bad == 0) "ok" else "FAIL" },
+        );
+    }
+}
+
+/// Prints what the read path of the card did.
+///
+/// These counters live in the SD clock domain, so they say what the CARD
+/// saw and not what this side believes. A DROP counts a block that reached
+/// the card under a tag that named no read it was waiting for.
+fn printReadStats(out: *Io.Writer, device: *Device) !void {
+    const started = try device.regRead(sd.REG_DBG_READ_START);
+    const done = try device.regRead(sd.REG_DBG_READ_DONE);
+    const dropped = try device.regRead(sd.REG_DBG_READ_DROP);
+    const aborted = try device.regRead(sd.REG_DBG_READ_ABORT);
+    const posted = try device.regRead(sd.REG_DBG_IN_COUNT);
+    try out.print(
+        "card: {d} frames started, {d} finished, {d} blocks dropped, {d} aborted\n",
+        .{ started, done, dropped, aborted },
+    );
+    try out.print("card: DBG_IN = 0x{X:0>8}\n", .{posted});
 }
 
 /// Prints `error: <name>` plus a human hint, then exits 1. Flushes by hand:
@@ -708,6 +1046,9 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\  help     print this usage
         \\  version  read ID and VERSION, verify the MIMC magic
         \\  probe    SCRATCH round trips + burst reads, print stats
+        \\  pushtest stream one to sixteen blocks in ONE transfer and read the
+        \\           last word back, which says how large a transfer the
+        \\           device reads whole
         \\  info     print the CSR map with CTRL bits decoded
         \\  capacity <image|blocks> [--grow]
         \\           build an SD CSD register and write it to CSD_0..CSD_3,
@@ -723,6 +1064,7 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\           size. --grow only ever makes an image larger.
         \\
         \\  serve <image> [--ro] [--grow] [--stats] [--read-ahead=N]
+        \\           [--batch=N]
         \\           back the emulated card with a disk image. The command
         \\           sets the capacity from the size of the image, turns the
         \\           card on, and then answers every block that the card
@@ -739,7 +1081,16 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\           holds costs no round trip at all. --read-ahead=N also
         \\           puts the N blocks AFTER each read into that cache, so
         \\           a host walking a file pays one round trip for N+1
-        \\           blocks. The default is 3 and 0 turns it off.
+        \\           blocks.
+        \\
+        \\           The default is 0, which turns read ahead OFF. Every
+        \\           setting above 0 measured SLOWER on a real SG2000 and
+        \\           large ones stopped the card, so read ahead is off
+        \\           until the card read path can take a fill reliably.
+        \\
+        \\           --batch=N caps the blocks that ONE USB transfer
+        \\           carries, 1 to 16. It is a way to tell a fault of the
+        \\           link from a fault of the policy, not a tuning knob.
         \\
         \\
     , .{});

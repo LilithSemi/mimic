@@ -120,7 +120,7 @@ void main() {
     await readMissedBlock(b, sdTestLba, block, reason: 'first:');
 
     // The whole map, which is what `mimic-cli info` reads.
-    for (var addr = MimicReg.id; addr <= MimicReg.cacheLines; addr += 4) {
+    for (var addr = MimicReg.id; addr <= MimicReg.reqSnapshotHi; addr += 4) {
       await wbRead(b, addr);
     }
     expect(await cacheCounters(b), (

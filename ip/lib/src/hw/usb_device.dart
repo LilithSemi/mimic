@@ -49,6 +49,12 @@
 //   WRITE_STREAM (opcode 0x03): like WRITE, but the address stays fixed, so
 //                        every full word writes the same register (a FIFO
 //                        push).
+//   READ_POP_STREAM (opcode 0x04): reads repeatedly from the low 16-bit
+//                        address and writes bit 0 to the high 16-bit address
+//                        after each word.
+//   READ_THEN_POP (opcode 0x05): reads consecutive words from the low 16-bit
+//                        address and writes bit 0 to the high 16-bit address
+//                        once, after the final word.
 //
 // Clocking
 // Single clock domain (the SoC keeps the USB-rate 48 MHz clock single, the
@@ -108,12 +114,26 @@ class MimicUsbDeviceConfig {
   /// points at it.
   final String? serialNumber;
 
+  /// Cycles a command may wait in the EP1 OUT buffer before the endpoint
+  /// preempts the answer in front of it. See
+  /// [HarborUsbFsDevice.ep1StartStallCycles].
+  ///
+  /// A command that arrives while an answer is going out WAITS for that
+  /// answer, which is what lets the runtime put a command and the answer
+  /// to the command before it on the queue together. The bound only
+  /// protects against a host that walks away from an answer it asked for.
+  ///
+  /// Leave it alone in hardware. A bench sets it small to reach the bound,
+  /// because a simulation cannot run millions of cycles.
+  final int cmdStallCycles;
+
   const MimicUsbDeviceConfig({
     this.busAddressWidth = 12,
     this.busDataWidth = 32,
     this.idVendor = 0x1209,
     this.idProduct = 0x10C1,
     this.bulkEndpoints = true,
+    this.cmdStallCycles = HarborUsbFsDevice.ep1StartStallMax,
     this.serialNumber,
   });
 
@@ -515,6 +535,12 @@ class MimicUsbCmdEngine extends BridgeModule {
   // lands on the same bus address. This is a FIFO push burst (e.g. streaming
   // block data into DATA_IN with one 7-byte header instead of one per word).
   static const int _opWriteStream = MimicUsbOpcode.writeStream;
+  // Read one word repeatedly from the low 16 bits of the command address.
+  // After each word, write 1 to the address in the high 16 bits. This keeps
+  // FIFO removal explicit without one USB transaction per word.
+  static const int _opReadPopStream = MimicUsbOpcode.readPopStream;
+  // Read consecutive words, then write bit 0 to the packed pop address once.
+  static const int _opReadThenPop = MimicUsbOpcode.readThenPop;
 
   // FSM states.
   static const int _stOp = 0;
@@ -531,6 +557,8 @@ class MimicUsbCmdEngine extends BridgeModule {
   static const int _stRdAck = 11;
   static const int _stRdEmit = 12;
   static const int _stDone = 13;
+  static const int _stRdPopIssue = 14;
+  static const int _stRdPopAck = 15;
 
   MimicUsbCmdEngine({required this.config, String? name})
     : super('MimicUsbCmdEngine', name: name ?? 'mimic_usb_cmd_engine') {
@@ -677,6 +705,16 @@ class MimicUsbCmdEngine extends BridgeModule {
         Const(0, width: wordShift),
       ].swizzle();
     }
+    // READ_POP_STREAM packs its explicit pop register in the high 16 bits.
+    // The bus address width is at most 16 for this encoding.
+    if (aw > 16) {
+      throw ArgumentError.value(
+        aw,
+        'busAddressWidth',
+        'READ_POP_STREAM requires a bus address width of 16 bits or less.',
+      );
+    }
+    final popAddr = addr.slice(16 + aw - 1, 16).named('read_pop_addr');
     // This accepted byte is the last lane of its word (lane ==
     // bytesPerWord-1) OR the last byte of the whole transfer -> time to
     // flush a word write.
@@ -695,6 +733,15 @@ class MimicUsbCmdEngine extends BridgeModule {
     final isWrite = (opcode.eq(Const(_opWrite, width: 8)) | isStream).named(
       'is_write',
     );
+    final isReadPop = opcode
+        .eq(Const(_opReadPopStream, width: 8))
+        .named('is_read_pop');
+    final isReadThenPop = opcode
+        .eq(Const(_opReadThenPop, width: 8))
+        .named('is_read_then_pop');
+    final finalReadWord = (count + Const(bytesPerWord, width: 16))
+        .gte(len)
+        .named('final_read_word');
     // The byte of the latched read word selected by the current lane.
     Logic rdByte = rdWord.slice(7, 0);
     for (var lane = 0; lane < bytesPerWord; lane++) {
@@ -879,7 +926,9 @@ class MimicUsbCmdEngine extends BridgeModule {
                     ],
                     orElse: [
                       If(
-                        opcode.eq(Const(_opRead, width: 8)),
+                        opcode.eq(Const(_opRead, width: 8)) |
+                            isReadPop |
+                            isReadThenPop,
                         then: [
                           If(
                             len.eq(Const(0, width: 16)),
@@ -968,6 +1017,36 @@ class MimicUsbCmdEngine extends BridgeModule {
                       cycReg < Const(0),
                       stbReg < Const(0),
                       rdWord < bus.datMiso,
+                      state <
+                          mux(
+                            isReadPop | (isReadThenPop & finalReadWord),
+                            Const(_stRdPopIssue, width: 4),
+                            Const(_stRdEmit, width: 4),
+                          ),
+                    ],
+                  ),
+                ]),
+
+                CaseItem(Const(_stRdPopIssue, width: 4), [
+                  // The word is already safe in rdWord. Pop it explicitly
+                  // before exposing the response byte stream to the host.
+                  // A command that is interrupted after this point has still
+                  // performed the operation it requested.
+                  adrReg < popAddr,
+                  datReg < Const(1, width: dw),
+                  selReg < Const((1 << selWidth) - 1, width: selWidth),
+                  cycReg < Const(1),
+                  stbReg < Const(1),
+                  weReg < Const(1),
+                  state < Const(_stRdPopAck, width: 4),
+                ]),
+                CaseItem(Const(_stRdPopAck, width: 4), [
+                  If(
+                    bus.ack,
+                    then: [
+                      cycReg < Const(0),
+                      stbReg < Const(0),
+                      weReg < Const(0),
                       state < Const(_stRdEmit, width: 4),
                     ],
                   ),
@@ -1000,10 +1079,16 @@ class MimicUsbCmdEngine extends BridgeModule {
                             rdLastLane,
                             then: [
                               // Crossed a word boundary -> fetch the next
-                              // word.
-                              addr <
-                                  (addr + Const(bytesPerWord, width: 32)) &
-                                      ~Const(bytesPerWord - 1, width: 32),
+                              // word. A read-and-pop stream holds the data
+                              // address fixed. A normal read advances it.
+                              If(
+                                ~isReadPop,
+                                then: [
+                                  addr <
+                                      (addr + Const(bytesPerWord, width: 32)) &
+                                          ~Const(bytesPerWord - 1, width: 32),
+                                ],
+                              ),
                               state < Const(_stRdIssue, width: 4),
                             ],
                             orElse: [
@@ -1201,6 +1286,7 @@ class MimicUsbDevice extends BridgeModule {
       ),
       bulkEndpoints: config.bulkEndpoints,
       maxPacketSize: mimicUsbMaxPacketSize,
+      ep1StartStallCycles: config.cmdStallCycles,
     );
     addSubModule(ep0);
     ep0.input('clk').srcConnection! <= clk;

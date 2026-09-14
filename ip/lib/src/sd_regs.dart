@@ -280,17 +280,17 @@ int sdCsdCapacityBlocks(List<int> csd) =>
 /// [busWidths] is SD_BUS_WIDTHS, four bits: [sdBusWidth1Bit] and
 /// [sdBusWidth4Bit].
 ///
-/// The default advertises the 1-bit bus alone, because the receive
-/// datapath reads one data line. Do not add [sdBusWidth4Bit] before the
-/// datapath can read four lines: the host would send ACMD6, change the
-/// bus, and then read only noise.
+/// The SD specification requires every card to set both the 1-bit and
+/// 4-bit bits. Linux rejects an SCR that omits either bit before it reads
+/// any blocks. A host that is connected to the current 1-bit datapath must
+/// limit its controller to one data line in its device tree.
 ///
 /// The other fields are the fields of a version 2.00 SDHC card:
 /// SCR_STRUCTURE 0 for SCR version 1.0, SD_SPEC 2 for specification
 /// version 2.00, DATA_STAT_AFTER_ERASE 0 because an erased block reads as
 /// zero, and SD_SECURITY 3 for the security of an SDHC card. Bits 47 to 0
 /// are reserved or belong to the maker, and stay 0.
-int sdScr({int busWidths = sdBusWidth1Bit}) {
+int sdScr({int busWidths = sdBusWidth1Bit | sdBusWidth4Bit}) {
   if (busWidths < 1 || busWidths > 0xF) {
     throw ArgumentError.value(
       busWidths,

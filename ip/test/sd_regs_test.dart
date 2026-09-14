@@ -231,12 +231,12 @@ void main() {
   });
 
   group('sdScr', () {
-    test('advertises 1-bit and not 4-bit', () {
+    test('advertises the two widths required by the SD specification', () {
       final scr = sdScr();
       final widths = (scr >> 48) & 0xF;
       expect(widths & sdBusWidth1Bit, equals(sdBusWidth1Bit));
-      expect(widths & sdBusWidth4Bit, equals(0), reason: 'no 4-bit path yet');
-      expect(widths, equals(1));
+      expect(widths & sdBusWidth4Bit, equals(sdBusWidth4Bit));
+      expect(widths, equals(5));
     });
 
     test('holds the fields that a version 2.00 SDHC card reports', () {
@@ -246,7 +246,7 @@ void main() {
       expect((scr >> 55) & 0x1, equals(0), reason: 'DATA_STAT_AFTER_ERASE');
       expect((scr >> 52) & 0x7, equals(3), reason: 'SD_SECURITY SDHC');
       expect(scr & 0xFFFFFFFFFFFF, equals(0), reason: 'bits 47 to 0');
-      expect(scr, equals(0x0231000000000000));
+      expect(scr, equals(0x0235000000000000));
     });
 
     test('rejects a bus width set that is not 1 to 15', () {
@@ -257,7 +257,7 @@ void main() {
     test('gives 8 bytes, most significant first', () {
       expect(
         sdScrToBytes(sdScr()),
-        equals([0x02, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+        equals([0x02, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
       );
     });
   });

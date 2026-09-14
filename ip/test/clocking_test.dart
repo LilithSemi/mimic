@@ -552,6 +552,9 @@ void main() {
         card.input('sd_dat_in').srcConnection! <= datIn;
         card.input('csd').srcConnection! <= csd;
         card.input('csd_valid').srcConnection! <= csdValid;
+        card.input('num_blocks').srcConnection! <=
+            Const(sdCardCapacityBlocks, width: sdCommandArgBits);
+        card.input('num_blocks_valid').srcConnection! <= Const(1);
         // The block read path is off here. An input that nothing
         // drives holds X.
         card.input('card_enable').srcConnection! <= Const(0);
@@ -649,6 +652,10 @@ void main() {
       final syncArgs = _instanceArgs(sv, 'MimicResetSync  sd_reset_sync(');
       final cardArgs = _instanceArgs(sv, 'MimicSdCardDevice  sd_card_device(');
       final cdcArgs = _instanceArgs(sv, 'HarborCdcHandshake  csd_cdc(');
+      final capacityArgs = _instanceArgs(
+        sv,
+        'HarborCdcHandshake  num_blocks_cdc(',
+      );
       final syncReset = _argNet(syncArgs, 'reset');
       expect(
         _argNet(syncArgs, 'clk'),
@@ -664,6 +671,11 @@ void main() {
         _argNet(cdcArgs, 'dst_reset'),
         equals(syncReset),
         reason: 'the SD side of the CSD crossing takes the same reset',
+      );
+      expect(
+        _argNet(capacityArgs, 'dst_reset'),
+        equals(syncReset),
+        reason: 'the SD side of the capacity crossing takes the same reset',
       );
       expect(
         _argNet(cdcArgs, 'src_reset'),

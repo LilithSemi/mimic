@@ -44,8 +44,9 @@
 //   owns, one in each direction. This slave holds the runtime end of both.
 //
 //   A record is two words and each word has an ADDRESS of its own. REQ
-//   (0x18) reads word 0, which holds the opcode in bits 7 to 0, the
-//   sequence tag in bits 15 to 8 and the block count in bits 31 to 16.
+//   (0x18) reads word 0, which holds the opcode and card generation in
+//   bits 7 to 0, the sequence tag in bits 15 to 8 and the block count in
+//   bits 31 to 16.
 //   REQ_HI (0x68) reads word 1, which holds the block address. REQ_COUNT
 //   (0x1C) counts whole RECORDS and not words.
 //
@@ -291,6 +292,48 @@ final _mimicSdCardRegisterMap = HarborDeviceRegisterMap(
       readOnly: true,
       resetValue: sdCacheDefaultLines,
     ),
+    HarborDeviceField(
+      name: 'REQ_SNAPSHOT_COUNT',
+      width: 4,
+      offset: MimicReg.reqSnapshotCount,
+      readOnly: true,
+    ),
+    HarborDeviceField(
+      name: 'REQ_SNAPSHOT',
+      width: 4,
+      offset: MimicReg.reqSnapshot,
+      readOnly: true,
+    ),
+    HarborDeviceField(
+      name: 'REQ_SNAPSHOT_HI',
+      width: 4,
+      offset: MimicReg.reqSnapshotHi,
+      readOnly: true,
+    ),
+    HarborDeviceField(
+      name: 'DBG_READ_START',
+      width: 4,
+      offset: MimicReg.dbgReadStart,
+      readOnly: true,
+    ),
+    HarborDeviceField(
+      name: 'DBG_READ_DONE',
+      width: 4,
+      offset: MimicReg.dbgReadDone,
+      readOnly: true,
+    ),
+    HarborDeviceField(
+      name: 'DBG_READ_DROP',
+      width: 4,
+      offset: MimicReg.dbgReadDrop,
+      readOnly: true,
+    ),
+    HarborDeviceField(
+      name: 'DBG_READ_ABORT',
+      width: 4,
+      offset: MimicReg.dbgReadAbort,
+      readOnly: true,
+    ),
   ],
 );
 
@@ -422,6 +465,10 @@ class MimicSdCard extends BridgeModule
     createPort('dbg_cache_hit', PortDirection.input, width: sdDbgEventBits);
     createPort('dbg_cache_miss', PortDirection.input, width: sdDbgEventBits);
     createPort('dbg_cache_fill', PortDirection.input, width: sdDbgEventBits);
+    createPort('dbg_read_start', PortDirection.input, width: sdDbgEventBits);
+    createPort('dbg_read_done', PortDirection.input, width: sdDbgEventBits);
+    createPort('dbg_read_drop', PortDirection.input, width: sdDbgEventBits);
+    createPort('dbg_read_abort', PortDirection.input, width: sdDbgEventBits);
 
     // The runtime end of the block read channels. The SoC owns the two
     // FIFOs, so this module drives the read side of the request channel
@@ -499,7 +546,6 @@ class MimicSdCard extends BridgeModule
     // guarantee across a FIFO.
     addOutput('tag_word', width: sdTagChannelBits);
     addOutput('tag_push');
-
     // The COUNT of whole blocks the runtime has pushed, as a GRAY CODE.
     // The card brings it into its own clock domain, counts the blocks it
     // has taken, and starts a block on DAT only while the two differ: it
@@ -516,6 +562,11 @@ class MimicSdCard extends BridgeModule
     // CTRL bit 0. The SD clock domain reads it to decide whether the card
     // answers a read at all.
     addOutput('card_enable');
+
+    // The configured block count. The SoC carries this value into the SD
+    // clock domain as one snapshot, where the command decoder rejects a
+    // block address that the card does not contain.
+    addOutput('num_blocks', width: sdCommandArgBits);
 
     // The COMMITTED CSD as one 128-bit word, for the SoC to carry into the
     // SD clock domain. The word runs the same way the block does: bit 0 is
@@ -624,17 +675,17 @@ class MimicSdCard extends BridgeModule
         'with the fail bit at $sdWriteAckFailBit.',
       );
     }
-    if (MimicReg.cacheLines >= windowSize) {
+    if (MimicReg.dbgReadAbort >= windowSize) {
       // The decode reads the LOW 8 bits of the address, so a register
       // above 0xFF would answer at a second address as well.
       throw StateError(
-        'The map ends at ${MimicReg.cacheLines} and the slave window is '
+        'The map ends at ${MimicReg.dbgReadAbort} and the slave window is '
         '$windowSize bytes.',
       );
     }
-    if (MimicReg.cacheLines > 0xFF) {
+    if (MimicReg.dbgReadAbort > 0xFF) {
       throw StateError(
-        'The map ends at ${MimicReg.cacheLines}, which does not fit in the '
+        'The map ends at ${MimicReg.dbgReadAbort}, which does not fit in the '
         '8 bits of the register decode.',
       );
     }
@@ -914,7 +965,6 @@ class MimicSdCard extends BridgeModule
     ).named('tag_word_commit');
     output('tag_word') <= tagWord;
     output('tag_push') <= blockDone;
-
     // The count the card watches, and its gray code. It moves TWO bus
     // clocks after the last push of a block, so it can never reach the SD
     // clock domain before the word does: both cross with a two-flop
@@ -994,6 +1044,7 @@ class MimicSdCard extends BridgeModule
 
     // CTRL bit 0 gates the card. The SD clock domain reads it.
     output('card_enable') <= ctrlReg[_ctrlEnableBit];
+    output('num_blocks') <= numBlocksReg;
 
     // Sequential block: register writes + bus handshake.
     Sequential(clk, [
@@ -1367,6 +1418,49 @@ class MimicSdCard extends BridgeModule
                     // it, so one runtime serves every build.
                     CaseItem(Const(MimicReg.cacheLines, width: 8), [
                       bus.dataOut < Const(this.cacheLines, width: 32),
+                    ]),
+
+                    // A contiguous, read-only view of request count and
+                    // both head words. One USB READ can fetch all three.
+                    // The record cannot move until REQ_POP is written, so
+                    // a count of one makes the following words coherent.
+                    CaseItem(Const(MimicReg.reqSnapshotCount, width: 8), [
+                      bus.dataOut <
+                          mux(
+                            reqEmpty,
+                            Const(0, width: 32),
+                            Const(1, width: 32),
+                          ),
+                    ]),
+
+                    CaseItem(Const(MimicReg.reqSnapshot, width: 8), [
+                      If(
+                        ~bus.we & ~reqEmpty,
+                        then: [bus.dataOut < input('req_data').slice(31, 0)],
+                      ),
+                    ]),
+
+                    CaseItem(Const(MimicReg.reqSnapshotHi, width: 8), [
+                      If(
+                        ~bus.we & ~reqEmpty,
+                        then: [bus.dataOut < input('req_data').slice(63, 32)],
+                      ),
+                    ]),
+
+                    CaseItem(Const(MimicReg.dbgReadStart, width: 8), [
+                      bus.dataOut < input('dbg_read_start').zeroExtend(32),
+                    ]),
+
+                    CaseItem(Const(MimicReg.dbgReadDone, width: 8), [
+                      bus.dataOut < input('dbg_read_done').zeroExtend(32),
+                    ]),
+
+                    CaseItem(Const(MimicReg.dbgReadDrop, width: 8), [
+                      bus.dataOut < input('dbg_read_drop').zeroExtend(32),
+                    ]),
+
+                    CaseItem(Const(MimicReg.dbgReadAbort, width: 8), [
+                      bus.dataOut < input('dbg_read_abort').zeroExtend(32),
                     ]),
 
                     // CSD_0 to CSD_3: RW. The runtime writes the whole CSD

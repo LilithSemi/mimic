@@ -110,6 +110,12 @@ const int sdStatusIllegalCommandBit = 22;
 /// any other length raises this bit and changes nothing.
 const int sdStatusBlockLenErrorBit = 29;
 
+/// Bit number of OUT_OF_RANGE in the card status.
+///
+/// A 1 says that a data command named a block at or above the configured
+/// capacity. The card answers the command but starts no data transfer.
+const int sdStatusOutOfRangeBit = 31;
+
 /// Command index 0, GO_IDLE_STATE.
 ///
 /// A broadcast command with no response. It returns the card to idle from
@@ -166,6 +172,12 @@ const int sdCmdStopTransmission = 12;
 /// The card whose address the argument holds answers R1 with its card
 /// status. The command changes nothing, so a host can poll it.
 const int sdCmdSendStatus = 13;
+
+/// Application command index 13, SD_STATUS.
+///
+/// After CMD55, index 13 answers R1 and sends the 64-byte SD Status
+/// Register on DAT0. U-Boot reads it while choosing a bus mode.
+const int sdAcmdSdStatus = 13;
 
 /// Command index 17, READ_SINGLE_BLOCK.
 ///
@@ -247,8 +259,8 @@ const int sdBusWidthArg1Bit = 0;
 
 /// The value of ACMD6 bits 1 and 0 that asks for the 4-bit bus.
 ///
-/// The card refuses this width, and its SCR does not advertise it. See
-/// [sdCardScrValue].
+/// The current datapath refuses this width. Hosts connected to it must
+/// limit their controller to one data line until the 4-bit datapath lands.
 const int sdBusWidthArg4Bit = 2;
 
 /// Number of argument bits that ACMD6 reads.
@@ -261,6 +273,13 @@ const int sdBusWidthArgBits = 2;
 /// it, because the sender puts the most significant byte on the wire
 /// first. See [MimicSdRegTx].
 const int sdCardRegTxBits = sdSwitchStatusBits;
+
+/// The SD Status Register is one 64-byte data frame. The fields that U-Boot
+/// consumes are optional geometry and erase hints, so a zero value is a
+/// valid minimal report for this emulated card. Its DAT_BUS_WIDTH field is
+/// also zero, which reports the 1-bit bus currently in use.
+const int sdSsrBytes = 64;
+const int sdCardSsrValue = 0;
 
 /// The switch status that CMD6 reports, with every group at its default.
 ///
@@ -277,11 +296,10 @@ final List<int> sdCardSwitchStatusBytes = sdSwitchStatus();
 
 /// The SCR register of this card.
 ///
-/// It advertises the 1-bit bus alone, because the datapath reads and
-/// drives DAT0 alone. The constructor of [MimicSdCardFsm] checks that this
-/// value and the ACMD6 answer agree: a card that advertises the 4-bit bus
-/// and then refuses ACMD6 for it is a contradiction the card makes itself,
-/// and a host has no way out of it.
+/// The SD specification requires both width bits even when a board connects
+/// only DAT0. Linux rejects the card during SCR parsing if either bit is
+/// absent. The board device tree limits the host to one data line while the
+/// current datapath reads and drives DAT0 alone.
 final int sdCardScrValue = sdScr();
 
 /// Every command index that the default decode holds.
@@ -477,6 +495,12 @@ class SdDecodeInputs {
   /// the runtime as well.
   final Logic csd;
 
+  /// The number of 512-byte blocks that the card contains.
+  ///
+  /// A valid block address is smaller than this value. The SoC transfers the
+  /// complete value into this clock domain before it enables the card.
+  final Logic numBlocks;
+
   /// High while the block read path can take a new read, one bit wide.
   ///
   /// The read path is a module of its own, and it is low while a read is
@@ -521,6 +545,7 @@ class SdDecodeInputs {
     required this.opCondPoll,
     required this.rca,
     required this.csd,
+    required this.numBlocks,
     required this.readReady,
     required this.writeReady,
     required this.cardEnable,
@@ -770,18 +795,6 @@ class MimicSdCardFsm extends BridgeModule {
         'of 0 is not a signal.',
       );
     }
-    if ((sdCardScrValue >> 48) & sdBusWidth4Bit != 0) {
-      // The decode refuses ACMD6 for the 4-bit bus, because the datapath
-      // reads and drives DAT0 alone. An SCR that advertises the width the
-      // card then refuses is a contradiction the card makes itself: Linux
-      // reads the SCR, sends ACMD6 for 4 bits and gets an error back, and
-      // it has no way to tell that from a card that is broken.
-      throw StateError(
-        'The SCR advertises the 4-bit bus and the card refuses ACMD6 for '
-        'it. Widen the datapath first, or build the SCR with '
-        'sdBusWidth1Bit alone.',
-      );
-    }
     if (sdCardScrValue.bitLength > sdCardRegTxBits) {
       throw StateError(
         'The SCR needs ${sdCardScrValue.bitLength} bits and the card '
@@ -936,6 +949,7 @@ class MimicSdCardFsm extends BridgeModule {
     // settled in this clock domain. The width comes from the response port,
     // because the link sends an R2 register with nothing added.
     createPort('csd', PortDirection.input, width: sdResponseRegBits);
+    createPort('num_blocks', PortDirection.input, width: sdCommandArgBits);
 
     // The block read path. `read_ready` says the path can take a new read
     // and `card_enable` is CTRL bit 0 of the CSR block, already brought
@@ -1051,6 +1065,7 @@ class MimicSdCardFsm extends BridgeModule {
         opCondPoll: opCondPoll,
         rca: rca,
         csd: input('csd'),
+        numBlocks: input('num_blocks'),
         readReady: input('read_ready'),
         writeReady: input('write_ready'),
         cardEnable: input('card_enable'),
@@ -1392,7 +1407,7 @@ class MimicSdCardFsm extends BridgeModule {
     final isCmd8 = _isCommand(index, sdCmdSendIfCond, 'is_cmd8');
     final isCmd9 = _isCommand(index, sdCmdSendCsd, 'is_cmd9');
     final isCmd12 = _isCommand(index, sdCmdStopTransmission, 'is_cmd12');
-    final isCmd13 = _isCommand(index, sdCmdSendStatus, 'is_cmd13');
+    final isIndex13 = _isCommand(index, sdCmdSendStatus, 'is_index13');
     final isCmd17 = _isCommand(index, sdCmdReadSingleBlock, 'is_cmd17');
     final isCmd16 = _isCommand(index, sdCmdSetBlocklen, 'is_cmd16');
     final isCmd18 = _isCommand(index, sdCmdReadMultipleBlock, 'is_cmd18');
@@ -1413,6 +1428,8 @@ class MimicSdCardFsm extends BridgeModule {
     final isIndex6 = _isCommand(index, sdAcmdSetBusWidth, 'is_index6');
     final isAcmd6 = (inputs.appCmd & isIndex6).named('is_acmd6');
     final isCmd6 = (~inputs.appCmd & isIndex6).named('is_cmd6');
+    final isAcmd13 = (inputs.appCmd & isIndex13).named('is_acmd13');
+    final isCmd13 = (~inputs.appCmd & isIndex13).named('is_cmd13');
     final isAcmd51 =
         (inputs.appCmd & _isCommand(index, sdAcmdSendScr, 'is_index51')).named(
           'is_acmd51',
@@ -1479,8 +1496,18 @@ class MimicSdCardFsm extends BridgeModule {
     // this one until CMD12 stops it. Linux reads multi-block for nearly
     // every request, so the two commands must be equal in every other way.
     final isRead = (isCmd17 | isCmd18).named('is_read_command');
-    final readBlock = (isRead & inTran & readAllowed).named('read_block');
-    final readRefused = (isRead & inTran & ~readAllowed).named('read_refused');
+    final addressInRange = inputs.arg
+        .lt(inputs.numBlocks)
+        .named('address_in_range');
+    final readAddressBad = (isRead & inTran & ~addressInRange).named(
+      'read_address_bad',
+    );
+    final readBlock = (isRead & inTran & readAllowed & addressInRange).named(
+      'read_block',
+    );
+    final readRefused = (isRead & inTran & ~readAllowed & addressInRange).named(
+      'read_refused',
+    );
     final readMulti = (readBlock & isCmd18).named('read_multi');
 
     // CMD24, WRITE_BLOCK. It belongs to the tran state, the same way CMD17
@@ -1502,10 +1529,14 @@ class MimicSdCardFsm extends BridgeModule {
     final writeAllowed = (inputs.cardEnable & inputs.writeReady).named(
       'write_allowed',
     );
-    final writeBlock = (isCmd24 & inTran & writeAllowed).named('write_block');
-    final writeRefused = (isCmd24 & inTran & ~writeAllowed).named(
-      'write_refused',
+    final writeAddressBad = (isCmd24 & inTran & ~addressInRange).named(
+      'write_address_bad',
     );
+    final writeBlock = (isCmd24 & inTran & writeAllowed & addressInRange).named(
+      'write_block',
+    );
+    final writeRefused = (isCmd24 & inTran & ~writeAllowed & addressInRange)
+        .named('write_refused');
 
     // CMD16, SET_BLOCKLEN. The card holds a datapath of sdBlockBytes bytes
     // and nothing else, so it accepts that length and refuses every other
@@ -1522,10 +1553,9 @@ class MimicSdCardFsm extends BridgeModule {
     // ACMD6, SET_BUS_WIDTH. The card drives DAT0 alone, so it accepts the
     // 1-bit bus and refuses every other width with ERROR.
     //
-    // The SCR of this card advertises the 1-bit bus alone, so a host that
-    // reads the SCR first never asks for the 4-bit bus. The constructor
-    // checks that the two agree, because a card that advertises a width
-    // and then refuses it makes a contradiction that no host can resolve.
+    // The SD specification requires the SCR to include the 4-bit support
+    // bit. The board device tree must limit the host to one data line until
+    // the datapath implements all four lines.
     final setBusWidth = (isAcmd6 & inTran).named('set_bus_width');
     final busWidthOk = inputs.arg
         .slice(sdBusWidthArgBits - 1, 0)
@@ -1566,6 +1596,17 @@ class MimicSdCardFsm extends BridgeModule {
     final sendSwitch = (switchCommand & inputs.regReady).named('send_switch');
     final switchRefused = (switchCommand & ~inputs.regReady).named(
       'switch_refused',
+    );
+
+    // ACMD13, SD_STATUS. U-Boot reads this 64-byte register after each bus
+    // mode attempt. Index 13 without CMD55 remains CMD13, SEND_STATUS, and
+    // answers on CMD alone.
+    final sdStatusCommand = (isAcmd13 & inTran).named('sd_status_command');
+    final sendSdStatus = (sdStatusCommand & inputs.regReady).named(
+      'send_sd_status',
+    );
+    final sdStatusRefused = (sdStatusCommand & ~inputs.regReady).named(
+      'sd_status_refused',
     );
 
     // The selection nibble that each group gets in the answer.
@@ -1635,6 +1676,10 @@ class MimicSdCardFsm extends BridgeModule {
       Const(sdCardScrValue, width: sdScrBytes * 8),
       Const(0, width: sdCardRegTxBits - sdScrBytes * 8),
     ].swizzle().named('scr_value');
+    final ssrValue = Const(
+      sdCardSsrValue,
+      width: sdCardRegTxBits,
+    ).named('sd_status_value');
 
     // CMD12, STOP_TRANSMISSION, and CMD13, SEND_STATUS. The two commands
     // that a Linux host sends to recover from a data read timeout.
@@ -1701,12 +1746,21 @@ class MimicSdCardFsm extends BridgeModule {
     final status = _statusWithBit(
       _statusWithBit(
         _statusWithBit(
-          _statusWithBit(inputs.status, sdStatusAppCmdBit, isCmd55),
-          sdStatusIllegalCommandBit,
-          illegal,
+          _statusWithBit(
+            _statusWithBit(inputs.status, sdStatusAppCmdBit, isCmd55),
+            sdStatusIllegalCommandBit,
+            illegal,
+          ),
+          sdStatusOutOfRangeBit,
+          readAddressBad | writeAddressBad,
         ),
         sdStatusErrorBit,
-        (readRefused | writeRefused | busWidthBad | scrRefused | switchRefused)
+        (readRefused |
+                writeRefused |
+                busWidthBad |
+                scrRefused |
+                switchRefused |
+                sdStatusRefused)
             .named('error_bit_set'),
       ),
       sdStatusBlockLenErrorBit,
@@ -1810,13 +1864,16 @@ class MimicSdCardFsm extends BridgeModule {
                   sendCsd |
                   selectCard |
                   readBlock |
+                  readAddressBad |
                   readRefused |
                   writeBlock |
+                  writeAddressBad |
                   writeRefused |
                   setBlockLen |
                   setBusWidth |
                   scrCommand |
                   switchCommand |
+                  sdStatusCommand |
                   stopTransmission |
                   sendStatus)
               .named('decode_respond'),
@@ -1832,12 +1889,16 @@ class MimicSdCardFsm extends BridgeModule {
       readMulti: readMulti,
       writeStart: writeBlock,
       writeLba: inputs.arg,
-      regSend: (sendScr | sendSwitch).named('reg_send_any'),
-      regData: mux(sendSwitch, switchStatus, scrValue).named('reg_data_sel'),
-      regBytes: mux(
+      regSend: (sendScr | sendSwitch | sendSdStatus).named('reg_send_any'),
+      regData: mux(
         sendSwitch,
-        Const(sdSwitchStatusBytes, width: sdDataTxLenBits),
+        switchStatus,
+        mux(sendSdStatus, ssrValue, scrValue),
+      ).named('reg_data_sel'),
+      regBytes: mux(
+        sendScr,
         Const(sdScrBytes, width: sdDataTxLenBits),
+        Const(sdSsrBytes, width: sdDataTxLenBits),
       ).named('reg_bytes_sel'),
       // CMD0 returns the card to idle from every state, so it is also what
       // tells the block cache to throw every line away.

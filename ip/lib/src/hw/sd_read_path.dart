@@ -55,10 +55,25 @@ const int sdBlockWords = sdBlockBytes ~/ 4;
 /// must be able to push the blocks of a CMD18 stream BEFORE the card asks
 /// for them, and it needs somewhere to put them.
 ///
-/// Four costs nothing. The channel is on one DP16KD, which is 16 kbit, so
-/// it holds 512 words of 32 bits. 128 words used one whole DP16KD and left
-/// three quarters of it empty.
-const int sdDataInFifoBlocks = 4;
+/// Sixteen costs no BLOCK RAM. The channel is four 8-bit lanes and each
+/// lane is one DP16KD in x9 mode, which holds 2048 entries. Four blocks
+/// used 512 of those 2048 entries and left three quarters of every lane
+/// empty. Sixteen blocks fill the four lanes exactly, so the depth rises by
+/// four times on the SAME four block RAMs: 38 DP16KD at either depth.
+///
+/// It is not free in LOGIC. The tag channel holds one tag for each block
+/// the data channel holds, and that FIFO is flops, so 12 more entries of
+/// [sdTagChannelBits] cost 560 flip-flops and 491 LUT4 on the OrangeCrab.
+/// The SoC clock went from 65.04 MHz to 56.86 MHz and still PASSES the 48
+/// MHz it must hold.
+///
+/// The depth is what bounds ONE push from the runtime. The runtime can be
+/// only as far ahead as the channel is deep, so a four block channel made
+/// it push 2 KB and then wait for the card to drain before it could push
+/// again. Sixteen blocks let one USB transfer carry 8 KB, and the link is
+/// now charged per BYTE and not per transfer, so the larger transfer is
+/// where the throughput comes from.
+const int sdDataInFifoBlocks = 16;
 
 /// Number of words the READ data channel holds. See
 /// [sdDataInFifoBlocks].
@@ -100,6 +115,54 @@ const int sdBlockCountBits = 9;
 /// far more than either channel carries.
 final int sdDataWordCountBits = sdBlockCountBits + (sdBlockWords - 1).bitLength;
 
+/// Blocks that ONE record of a MULTIPLE block read asks for.
+///
+/// A CMD17 record always asks for one block. A CMD18 record asks for a
+/// whole chunk of this many, and the runtime pushes block after block
+/// against that one record, so the card pays the round trips of ONE record
+/// for the whole chunk instead of the round trips of a record for each
+/// block of it.
+///
+/// The number is a compromise between two costs. The card asks for a new
+/// chunk every [sdStreamRecordBlocks] blocks and waits a round trip for
+/// the first block of it, so a small chunk stalls often. A host that stops
+/// the stream in the middle of a chunk leaves the runtime pushing blocks
+/// that nobody reads, so a large chunk wastes more of the link on an
+/// abort. Linux reads about 200 blocks between one CMD12 and the next on
+/// this card, so 32 stalls about six times in a transfer and wastes at
+/// most 31 blocks at the end of one.
+///
+/// The card does NOT know how many blocks the host will read. CMD18 runs
+/// until CMD12 stops it, so the count in the record is what the CARD is
+/// willing to be sent, not a promise from the host.
+const int sdStreamRecordBlocks = 32;
+
+/// SD clocks the card leaves between the end bit of one block of a stream
+/// and the start bit of the next.
+///
+/// A chunk record puts the next block on the channel before the card asks
+/// for it, so the card could open that block on the clock after the end
+/// bit of the block before it. The gap is where the host puts the CMD12
+/// that stops the stream, and the number is what that command needs.
+///
+/// A command is 48 bits and a host leaves 8 clocks in front of it, which
+/// are `sdCommandBits` and `sdCommandGapClocks` of the link. A CMD12 that
+/// a host controller sends the moment it has the last block it wants is
+/// therefore DECODED 56 clocks after the end bit. 96 clocks covers that with room, so the
+/// card reads the abort while it is still WAITING and never opens a block
+/// the host does not want.
+///
+/// That matters because a block the card has opened cannot be stopped: the
+/// link has no way to end a frame early, so the card would hold the read
+/// path for the whole 4114 clocks and answer the NEXT read of the host
+/// with R1 ERROR. A host that sends CMD12 from software, later than this
+/// gap, can still meet that window. It is rare on this board because the
+/// SD bus drains a block three times faster than USB full speed delivers
+/// one, so the card is nearly always waiting and not sending.
+///
+/// 96 clocks is 2.3 percent of the 4114 clocks that one block takes.
+const int sdStreamGapClocks = 96;
+
 /// Request opcode 1, read_blocks.
 ///
 /// It is the only opcode the runtime knows. An unknown opcode still takes
@@ -109,8 +172,9 @@ const int sdRequestOpReadBlocks = 0x01;
 
 /// Number of 32-bit words in one request record.
 ///
-/// Word 0 holds the opcode in bits 7 to 0, a reserved field in bits 15 to
-/// 8 and the block count in bits 31 to 16. Word 1 holds the block address.
+/// Word 0 holds the opcode in bits 3 to 0, the card generation in bits 7 to
+/// 4, the sequence tag in bits 15 to 8 and the block count in bits 31 to 16.
+/// Word 1 holds the block address.
 const int sdRequestWords = 2;
 
 /// Number of bits in one request record.
@@ -120,7 +184,13 @@ const int sdRequestBits = sdRequestWords * 32;
 const int sdRequestBlocksBits = 16;
 
 /// Number of bits in the opcode field of a request record.
-const int sdRequestOpBits = 8;
+const int sdRequestOpBits = 4;
+
+/// Number of bits in the card generation field of a request record.
+///
+/// CMD0 advances this value. The runtime uses it to discard a cache model
+/// that describes the card before CMD0 invalidated its cache.
+const int sdRequestEpochBits = 4;
 
 /// Number of bits in the sequence tag field of a request record.
 ///
@@ -173,14 +243,17 @@ const int sdTagFifoDepth = sdDataInFifoBlocks;
 ///
 /// The value is a compromise between two faults. Too short, and a runtime
 /// that is merely slow loses a read it would have answered. Too long, and
-/// a host waits for data that is never coming. 1048576 clocks is 42 ms at
-/// 25 MHz, which is close to the data timeout a Linux mmc host computes,
-/// and far longer than the USB round trip plus one image read that a
-/// healthy runtime needs.
+/// a host waits for data that is never coming. 4194304 clocks was 168 ms at
+/// 25 MHz. Hardware runs showed that it could expire during a healthy NixOS
+/// activation after many minutes of correct reads. 33554432 clocks is 1.34
+/// seconds at 25 MHz and 5.59 seconds at the 6 MHz initialization clock. It
+/// stays below the approximately 10 second data timeout of this U-Boot and
+/// Linux. A successful answer still starts as soon as it arrives, so the
+/// longer limit does not add read latency.
 ///
 /// A test gives a small number here so that the timeout is reachable in a
 /// simulation.
-const int sdReadTimeoutClocks = 1 << 20;
+const int sdReadTimeoutClocks = 1 << 25;
 
 /// Read state 0: no read is in progress.
 const int sdReadStateIdle = 0;
@@ -218,9 +291,10 @@ final int sdReadStateBits = sdReadStateLookup.bitLength;
 /// A HIT then serves the 512 bytes straight out of the cache and posts NO
 /// record at all: nothing crosses to the runtime, and the host pays the
 /// time of the SD bus alone. A MISS posts one record on `req_data` and
-/// `req_valid` and waits, exactly as it did before the cache existed, and
-/// it ALSO writes the block that arrives into the line it maps to, so the
-/// next read of that block is a hit.
+/// `req_valid` and waits. The runtime can merge that record with a
+/// speculative fill that it already sends. The card writes the arriving
+/// block into the line
+/// it maps to, so the next read of that block is a hit.
 ///
 /// A block that answers no record is a FILL. The runtime pushes it with
 /// the tag [sdRequestSeqNone] and a block address of its own on
@@ -250,8 +324,15 @@ final int sdReadStateBits = sdReadStateLookup.bitLength;
 /// `tx_done` closes it, and the byte order inside a word is LITTLE ENDIAN,
 /// so byte 0 of the block is bits 7 to 0 of the first word.
 ///
-/// `ready` says the card can take a new read. It is low while a read runs
-/// and while the card is disabled.
+/// `ready` says the card can take a new read on the clock AFTER the one it
+/// is read in. It is low while a read runs and while the card is disabled.
+///
+/// The promise is about the next clock because the state machine works
+/// that way: it reads `ready` while it decodes the command and it drives
+/// `start` from a register in the clock after that. A `ready` that spoke
+/// only for its own clock would let the state machine announce a read that
+/// the path then threw away, and the card would hold the data state for
+/// ever with no read in it.
 ///
 /// When no answer comes
 /// A record that nothing answers would leave the host waiting for a start
@@ -262,8 +343,30 @@ final int sdReadStateBits = sdReadStateLookup.bitLength;
 /// real card does when a read fails: the host reads a data timeout and
 /// recovers with a command of its own.
 ///
-/// A record is posted for a MISS alone, so the sequence counter and the
-/// tags count MISSES and not reads. A read that hits moves neither.
+/// A record is posted for each MISS, so the sequence counter and the tags
+/// count runtime requests and not reads. A hit moves neither. The runtime
+/// merges a request with a speculative line that it already sends.
+///
+/// One record for a CHUNK of a stream
+/// A CMD17 record asks for ONE block. A CMD18 record asks for
+/// [sdStreamRecordBlocks] blocks, and the card then takes block after
+/// block off the channel under the ONE tag of that record until the chunk
+/// runs out. The runtime answers such a record with one push of four
+/// blocks after another, so the whole chunk costs the round trips of its
+/// blocks and not the round trips of a record for each block.
+///
+/// A CMD18 therefore never asks the cache. The record IS the read ahead,
+/// and a lookup for each block would put a record on the channel for each
+/// block again. The cache and the speculative fills stay for CMD17, which
+/// is where a block is read on its own.
+///
+/// The card does not know how long the stream is. It asks for a chunk, and
+/// it asks for another when that one runs out, until CMD12 stops it or the
+/// stream reaches the end of the card. A host that stops in the middle of
+/// a chunk leaves the runtime pushing blocks that no read wants: the TAG
+/// is what keeps that safe, because the next read takes the next sequence
+/// number and every block of the chunk that is left carries the old one
+/// and is thrown away.
 ///
 /// A record that goes unanswered leaves an answer that may still be on its
 /// way. The TAG is what tells the two apart, and no timer is needed for
@@ -278,12 +381,20 @@ class MimicSdReadPath extends BridgeModule {
   /// SD clocks the card waits for the answer to one request.
   final int timeoutClocks;
 
+  /// Blocks that one record of a multiple block read asks for.
+  final int streamBlocks;
+
   /// Makes the read sequencer.
   ///
   /// [timeoutClocks] defaults to [sdReadTimeoutClocks]. A test gives a
   /// small number so that the timeout is reachable in a simulation.
-  MimicSdReadPath({int? timeoutClocks, String? name})
+  ///
+  /// [streamBlocks] defaults to [sdStreamRecordBlocks]. A test gives a
+  /// small number so that a stream crosses a chunk boundary in a few
+  /// blocks instead of tens of them.
+  MimicSdReadPath({int? timeoutClocks, int? streamBlocks, String? name})
     : timeoutClocks = timeoutClocks ?? sdReadTimeoutClocks,
+      streamBlocks = streamBlocks ?? sdStreamRecordBlocks,
       super('MimicSdReadPath', name: name ?? 'sd_read_path') {
     if (this.timeoutClocks < 2) {
       throw ArgumentError.value(
@@ -291,6 +402,16 @@ class MimicSdReadPath extends BridgeModule {
         'timeoutClocks',
         'must be 2 or more. The counter is as wide as the count, and a '
             'timeout of 0 or 1 clock gives up before a block can arrive.',
+      );
+    }
+    if (this.streamBlocks < 1 ||
+        this.streamBlocks > (1 << sdRequestBlocksBits) - 1) {
+      throw ArgumentError.value(
+        this.streamBlocks,
+        'streamBlocks',
+        'must be 1 or more and must fit the $sdRequestBlocksBits bit block '
+            'count of a record. A chunk of 0 blocks asks for nothing and '
+            'the card would wait out the whole timeout.',
       );
     }
     if (sdBlockBytes % 4 != 0) {
@@ -321,7 +442,11 @@ class MimicSdReadPath extends BridgeModule {
         'shorter tag channel drops the tag of a block that is on its way.',
       );
     }
-    if (sdRequestOpBits + sdRequestSeqBits + sdRequestBlocksBits > 32) {
+    if (sdRequestOpBits +
+            sdRequestEpochBits +
+            sdRequestSeqBits +
+            sdRequestBlocksBits >
+        32) {
       throw StateError(
         'Word 0 of a record holds a $sdRequestOpBits bit opcode, a '
         '$sdRequestSeqBits bit sequence tag and a $sdRequestBlocksBits bit '
@@ -352,6 +477,8 @@ class MimicSdReadPath extends BridgeModule {
 
     createPort('start', PortDirection.input);
     createPort('lba', PortDirection.input, width: sdCommandArgBits);
+    createPort('num_blocks', PortDirection.input, width: sdCommandArgBits);
+    createPort('epoch', PortDirection.input, width: sdRequestEpochBits);
 
     // High with `start` for a MULTIPLE block read, CMD18. The card then
     // asks for the block after the one it just sent, and it goes on until
@@ -446,6 +573,13 @@ class MimicSdReadPath extends BridgeModule {
     addOutput('block_consumed');
     addOutput('timeout_event');
 
+    // Diagnostic pulses for the demand read path. The card device counts
+    // these in this clock domain and publishes gray codes to the runtime.
+    addOutput('dbg_tx_start');
+    addOutput('dbg_tx_done');
+    addOutput('dbg_drop');
+    addOutput('dbg_abort');
+
     // One pulse for each block the card TAKES off the channel, whatever it
     // then does with it. It takes one entry off the tag channel, so the
     // head of that channel always names the head of the data channel.
@@ -470,7 +604,6 @@ class MimicSdReadPath extends BridgeModule {
     final stateWait = Const(sdReadStateWait, width: sdReadStateBits);
     final stateSend = Const(sdReadStateSend, width: sdReadStateBits);
     final stateDrop = Const(sdReadStateDrop, width: sdReadStateBits);
-
     final state = Logic(name: 'read_state', width: sdReadStateBits);
     final wordReg = Logic(name: 'read_word', width: 32);
     final byteSel = Logic(name: 'read_byte_sel', width: 2);
@@ -498,11 +631,10 @@ class MimicSdReadPath extends BridgeModule {
 
     // The tag of the request the card waits for.
     //
-    // The counter moves on every read the card POSTS A RECORD FOR, which
-    // is every read the cache missed. A read that hit posts nothing and
-    // moves nothing. It steps over [sdRequestSeqNone] on a wrap, so that
-    // value names no request at any time and an untagged block matches
-    // nothing.
+    // The counter moves on every read the card POSTS A RECORD FOR. A read
+    // that hits posts nothing and moves nothing. It steps over
+    // [sdRequestSeqNone] on a wrap, so that value names no request at any
+    // time and an untagged block matches nothing.
     final seq = Logic(name: 'read_seq', width: sdRequestSeqBits);
     final oneSeq = Const(1, width: sdRequestSeqBits);
     final lastSeq = Const(1, width: sdRequestSeqBits, fill: true);
@@ -540,6 +672,12 @@ class MimicSdReadPath extends BridgeModule {
     // words go into the cache instead of nowhere.
     final dropFill = Logic(name: 'read_drop_fill');
 
+    // The lookup that resumes after a gap block went past. It is one clock
+    // AFTER the last word of that block, because that word writes the tag
+    // of the line it filled and a lookup on the same clock would read the
+    // tag RAM while the fill wrote it.
+    final dropLookupArm = Logic(name: 'read_drop_lookup_arm');
+
     // The timeout counter. It measures the wait for the answer to the one
     // record the card holds, and nothing else. It runs on through a block
     // of another record that goes past, so a runtime that sends only the
@@ -558,6 +696,33 @@ class MimicSdReadPath extends BridgeModule {
     final curLba = Logic(name: 'read_cur_lba', width: sdCommandArgBits);
     final nextLba = Logic(name: 'read_next_lba', width: sdCommandArgBits);
     final oneLba = Const(1, width: sdCommandArgBits);
+
+    // Blocks of the CHUNK that the card has still to take off the channel,
+    // the block going out on DAT included.
+    //
+    // It is loaded with the count the record asked for and it counts down
+    // one for each block the card finishes. While it is above 1 the card
+    // goes straight back to the wait for the next block of the SAME
+    // record, under the SAME tag. At 1 the chunk is spent and the card
+    // asks for another one.
+    final streamLeft = Logic(
+      name: 'read_stream_left',
+      width: sdRequestBlocksBits,
+    );
+    final oneBlockCount = Const(1, width: sdRequestBlocksBits);
+
+    // SD clocks still to pass before the card may open the next block of a
+    // stream. See [sdStreamGapClocks].
+    //
+    // It counts down in EVERY state, and only the end of a block of a
+    // stream loads it, so no other path can be held by a gap that another
+    // one left behind.
+    final gapBits = sdStreamGapClocks.bitLength;
+    final gapLeft = Logic(name: 'read_gap_left', width: gapBits);
+    final zeroGap = Const(0, width: gapBits);
+    final oneGap = Const(1, width: gapBits);
+    final fullGap = Const(sdStreamGapClocks, width: gapBits);
+    final gapIdle = gapLeft.eq(zeroGap).named('read_gap_idle');
 
     // High while the block going out on DAT comes from the CACHE and not
     // from the data channel. The two differ in one thing alone: where the
@@ -588,7 +753,6 @@ class MimicSdReadPath extends BridgeModule {
     final inWait = state.eq(stateWait).named('read_in_wait');
     final inSend = state.eq(stateSend).named('read_in_send');
     final inDrop = state.eq(stateDrop).named('read_in_drop');
-
     // A whole block waits on the channel. The runtime has pushed more
     // blocks than the card has taken, and both counts wrap at the same
     // number, so the compare is right through every wrap.
@@ -614,13 +778,38 @@ class MimicSdReadPath extends BridgeModule {
     // one CMD18 after another for as long as read ahead kept pushing, and
     // the host would read a file that is part right and part missing.
     //
-    // The LAST clock of a drop is not ready. The read the card takes here
-    // is served when the drop ends, and a start on the very clock the drop
-    // ended would be lost between the two.
-    final absorbing =
-        (inDrop & ~dropToWait & ~dropToLookup & wordsLeft.gt(oneWord)).named(
-          'read_absorbing',
-        );
+    // `ready` MUST HOLD FOR THE CLOCK AFTER THE ONE IT IS READ IN.
+    //
+    // The state machine reads `read_ready` while it decodes the command,
+    // writes a register, and drives `read_start` from that register in the
+    // NEXT clock. A window that opens for one clock and shuts in the next
+    // therefore announces a read that this path then throws away.
+    //
+    // A lost read is not a slow read. The state machine has already moved
+    // the card to the data state and answered the host with no error, and
+    // nothing in the data state times out when no read runs there. Every
+    // command after it needs the tran state and gets NO ANSWER AT ALL,
+    // which is what a host reports as a hardware interrupt timeout.
+    //
+    // A window that SHUT would be no better than one that is lost. The
+    // state machine answers a read it cannot take with R1 ERROR, which a
+    // Linux host reports as an I/O error on that request. The condition
+    // below therefore covers EVERY clock of an absorbing drop, and the end
+    // of the drop reads `startInDrop` beside `dropToLookup` so that a read
+    // on the very last clock arms the lookup the way any other one does.
+    //
+    // Every clock after a clock this covers is also covered. From idle the
+    // path stays in idle or opens a drop with all [sdBlockWords] words
+    // still to come. From a drop it stays in that drop or goes to idle.
+    // The promise about the next clock therefore holds with no count in
+    // it at all.
+    //
+    // A drop that carries `dropToWait` or `dropToLookup` is already
+    // serving a read and takes no other. `dropLookupArm` is the clock
+    // after the last word of such a drop, where `wordsLeft` is 0 and the
+    // lookup address is already chosen, so it is excluded as well.
+    final absorbing = (inDrop & ~dropToWait & ~dropToLookup & ~dropLookupArm)
+        .named('read_absorbing');
     final ready = ((inIdle | absorbing) & enable).named('read_ready');
 
     // The request goes out on the clock the LOOKUP MISSES, and not on the
@@ -628,41 +817,94 @@ class MimicSdReadPath extends BridgeModule {
     // that hits posts no record at all: that is the whole point of the
     // cache.
     //
-    // The card asks for exactly ONE BLOCK in every record, whatever
-    // command started the read: a missed CMD17 posts one record and a
-    // CMD18 posts one for each block of the stream that misses. The widths
-    // come from the field constants, so a field that moves cannot push
-    // another one off the end.
+    // The blocks that ONE record asks for.
+    //
+    // A chunk never passes the end of the card. `num_blocks` is the last
+    // block plus one and `curLba` is inside it, because the state machine
+    // refuses a read that starts outside and the card stops a stream that
+    // reaches the end, so the difference is the blocks that are left. A
+    // record that asked for more would name a block the runtime does not
+    // hold, and the runtime refuses such a record whole.
+    //
+    // `lbaInRange` is the guard on a card that somehow left that range. It
+    // asks for one block there, which is what this path asked for before
+    // the chunk existed.
+    final chunkWide = Const(this.streamBlocks, width: sdCommandArgBits);
+    final chunkCount = Const(this.streamBlocks, width: sdRequestBlocksBits);
+    final lbaInRange = curLba
+        .lt(input('num_blocks'))
+        .named('read_lba_in_range');
+    final blocksLeft = (input('num_blocks') - curLba).named('read_blocks_left');
+    final chunkBlocks = mux(
+      lbaInRange,
+      mux(
+        blocksLeft.gt(chunkWide),
+        chunkCount,
+        blocksLeft.slice(sdRequestBlocksBits - 1, 0),
+      ),
+      oneBlockCount,
+    ).named('read_chunk_blocks');
+    final reqBlocks = mux(
+      multiReg,
+      chunkBlocks,
+      oneBlockCount,
+    ).named('read_req_blocks');
+
+    // A CMD17 record asks for ONE block. A CMD18 record asks for a whole
+    // chunk of [sdStreamRecordBlocks] blocks, which the card then takes
+    // off the channel one after another under the one tag of the record.
+    // The widths come from the field constants, so a field that moves
+    // cannot push another one off the end.
     //
     // The tag is the NEXT value of the counter and not the value it holds
     // now, because the counter moves on this same clock. The card is
     // therefore waiting for the tag that `seq` holds through the whole
     // wait, which is the value that the compare below reads.
     final reqWord0 = [
-      Const(1, width: sdRequestBlocksBits),
+      reqBlocks,
       seqNext,
+      input('epoch'),
       Const(sdRequestOpReadBlocks, width: sdRequestOpBits),
     ].swizzle().named('req_word0');
 
     final takeStart = (ready & input('start')).named('read_take_start');
 
-    // A MULTIPLE block read looks the cache up ONCE FOR EACH BLOCK, and
-    // the lookup of the block after this one goes out on the clock the
-    // link reports the end bit of this one.
+    // A MULTIPLE block read takes [sdStreamRecordBlocks] blocks off the
+    // channel under ONE record. The card goes back to the wait on the
+    // clock the link reports the end bit of a block, and the next block of
+    // the chunk is often already there, so a stream runs block after block
+    // with no gap at all.
     //
-    // One record per block and not one record with a count. The runtime
-    // reads a record, answers it with one tagged block and pops it, and
-    // that loop is what the runtime already does for CMD17: a stream is
-    // then the SAME record over and over with the address moved on by one
-    // and a tag of its own. A record with a count would need the runtime
-    // to push several blocks against one record and one tag, and the tag
-    // compare, the block counter and the free space that DATA_IN_COUNT
-    // reports would all have to change with it.
+    // The card asks for a new chunk when one runs out. That lookup and the
+    // record after it cost one round trip for every [sdStreamRecordBlocks]
+    // blocks, and nothing else in the stream costs a record.
     final abortNow = (input('abort') | abortSeen | ~enable).named(
       'read_abort_now',
     );
     final atEnd = (inSend & input('tx_done')).named('read_at_end');
-    final goOn = (atEnd & multiReg & ~abortNow).named('read_go_on');
+    final nextInRange = nextLba
+        .lt(input('num_blocks'))
+        .named('read_next_in_range');
+    final goOn = (atEnd & multiReg & ~abortNow & nextInRange).named(
+      'read_go_on',
+    );
+
+    // The chunk still owes blocks. The card goes straight back to the WAIT
+    // under the same record and the same tag, and it asks the cache and
+    // the runtime for nothing at all. This is what makes a stream cost one
+    // record for [sdStreamRecordBlocks] blocks.
+    //
+    // The count is compared with 1 and not with 0, because the block that
+    // has just left DAT is still counted here: the register falls on this
+    // same clock.
+    final streamMore = (multiReg & streamLeft.gt(oneBlockCount)).named(
+      'read_stream_more',
+    );
+    final goOnSame = (goOn & streamMore).named('read_go_on_same');
+
+    // The chunk is spent and the stream goes on, so the card looks the
+    // next block up and asks for a chunk that starts there.
+    final goOnLookup = (goOn & ~streamMore).named('read_go_on_lookup');
 
     // A block waits on the channel that the card did not ask for now. The
     // card takes it off BEFORE it looks the next block up: a FILL goes
@@ -688,19 +930,22 @@ class MimicSdReadPath extends BridgeModule {
     // read ahead through a CMD18: the card is never idle in a stream, so
     // this is the only place a fill can reach the cache while one runs.
     final goOnDirect = Logic(name: 'read_go_on_direct');
-    final goOnNow = (goOn & ~gapBlock).named('read_go_on_now');
-    final goOnDrop = (goOn & gapBlock & ~goOnDirect).named('read_go_on_drop');
-
-    // The lookup that resumes after a gap block went past. It is one clock
-    // AFTER the last word of that block, because that word writes the tag
-    // of the line it filled and a lookup on the same clock would read the
-    // tag RAM while the fill wrote it.
-    final dropLookupArm = Logic(name: 'read_drop_lookup_arm');
+    final goOnNow = (goOnLookup & ~gapBlock).named('read_go_on_now');
+    final goOnDrop = (goOnLookup & gapBlock & ~goOnDirect).named(
+      'read_go_on_drop',
+    );
 
     // The address of the lookup: the port for the first block of a read,
     // the register that holds the block the card is on for a lookup that
     // resumes after a gap block, and the register that holds the block
     // after it for every other step of a stream.
+    // The card leaves the lookup or the wait as soon as the runtime drops
+    // CTRL bit 0 or the state machine aborts the read. Both release a host
+    // that is waiting for a block, and neither waits out the timeout.
+    final release = (inWait & (input('abort') | ~enable)).named('read_release');
+    final releaseLookup = (inLookup & (input('abort') | ~enable)).named(
+      'read_release_lookup',
+    );
     final lookupLba = mux(
       startNow,
       input('lba'),
@@ -709,30 +954,33 @@ class MimicSdReadPath extends BridgeModule {
     output('cache_lookup') <= startNow | goOnNow | dropLookupArm;
     output('cache_lookup_lba') <= lookupLba;
 
-    // The card leaves the lookup or the wait as soon as the runtime drops
-    // CTRL bit 0 or the state machine aborts the read. Both release a host
-    // that is waiting for a block, and neither waits out the timeout.
-    final release = (inWait & (input('abort') | ~enable)).named('read_release');
-    final releaseLookup = (inLookup & (input('abort') | ~enable)).named(
-      'read_release_lookup',
-    );
-
     // The verdict of the lookup. The card stays in the lookup state until
     // the cache answers, and the cache then holds the answer until the
     // next lookup, so the verdict is correct in every clock of the state
     // from the moment it is valid.
     final verdictReady = (inLookup & ~releaseLookup & input('cache_hit_valid'))
         .named('read_verdict_ready');
-    final cacheHit = (verdictReady & input('cache_hit')).named(
+    //
+    // A MULTIPLE block read never hits. The record of a stream IS the read
+    // ahead: it asks for a whole chunk in one record, so a lookup for each
+    // block of that chunk would put a record on the channel for each block
+    // again and undo the whole gain. The cache and the speculative fills
+    // stay for CMD17, where a block is read on its own.
+    final cacheHit = (verdictReady & input('cache_hit') & ~multiReg).named(
       'read_cache_hit',
     );
-    final cacheMiss = (verdictReady & ~input('cache_hit')).named(
+    final cacheMiss = (verdictReady & (~input('cache_hit') | multiReg)).named(
       'read_cache_miss',
     );
 
+    // A miss of a SINGLE block read. It is the one that opens a cache fill
+    // on the line of the block it asked for, so that the next read of that
+    // block hits. A stream writes no line: it reads each block once, and a
+    // line it took would push out a line that a metadata read wants.
+    final demandFill = (cacheMiss & ~multiReg).named('read_demand_fill');
+
     // The record. It goes out on the clock the lookup misses.
     output('req_data') <= [curLba, reqWord0].swizzle();
-    output('req_valid') <= cacheMiss;
 
     // A HIT. The first word of the line is already on the read port of the
     // cache, because the lookup read it with the tag, so the card can open
@@ -756,6 +1004,7 @@ class MimicSdReadPath extends BridgeModule {
     final fillMatchesWait = (blockIsFill & blockFillLba.eq(curLba)).named(
       'read_fill_matches_wait',
     );
+    output('req_valid') <= cacheMiss;
     // A fill takes the cache path even when it names the next stream block.
     // Starting it directly on the end clock of the previous block gives the
     // host no command gap in which to issue CMD12. The cache path absorbs the
@@ -769,10 +1018,10 @@ class MimicSdReadPath extends BridgeModule {
         (inWait &
                 ~release &
                 haveBlock &
+                gapIdle &
                 (tagMatch | fillMatchesWait) &
                 ~input('cmd_busy'))
             .named('read_load_first');
-
     // A block whose tag names no record the card waits for. It is taken
     // off the channel and the card goes back to waiting for its own.
     //
@@ -820,17 +1069,22 @@ class MimicSdReadPath extends BridgeModule {
 
     output('data_pop') <= loadFirst | loadNextFifo | dropPop | goOnDirect;
     output('tx_start') <= loadFirst | hitLoad | goOnDirect;
+    output('dbg_tx_start') <= loadFirst | hitLoad | goOnDirect;
+    output('dbg_tx_done') <= inSend & input('tx_done');
+    output('dbg_drop') <= dropOther | dropIdle | startDrop | goOnDrop;
+    output('dbg_abort') <= release | releaseLookup | (atEnd & abortNow);
     output('cache_rd_next') <= hitLoad | loadNextCache;
 
-    // The fill port of the cache. A MISS opens a fill on the line of the
-    // block it asked for, and a fill block that the card takes off the
-    // channel opens one on the line of the address it carries.
+    // The fill port of the cache. A MISS of a SINGLE block read opens a
+    // fill on the line of the block it asked for, and a fill block that
+    // the card takes off the channel opens one on the line of the address
+    // it carries. A stream opens none: see [demandFill].
     //
     // No two of these land on one clock. A miss is decided in the lookup
     // state and the other two are decided in the idle state and at the end
     // bit of a block, and the card is in one state at a time.
-    output('cache_fill_start') <= cacheMiss | fillIdle | fillGap;
-    output('cache_fill_lba') <= mux(cacheMiss, curLba, blockFillLba);
+    output('cache_fill_start') <= demandFill | fillIdle | fillGap;
+    output('cache_fill_lba') <= mux(demandFill, curLba, blockFillLba);
     output('cache_fill_word') <= input('data_word');
     output('cache_fill_push') <=
         ((loadFirst | loadNextFifo) & fillActive) | (dropPop & dropFill);
@@ -869,6 +1123,8 @@ class MimicSdReadPath extends BridgeModule {
         dropLookupArm: Const(0),
         dropFill: Const(0),
         multiReg: Const(0),
+        streamLeft: Const(0, width: sdRequestBlocksBits),
+        gapLeft: zeroGap,
         curLba: Const(0, width: sdCommandArgBits),
         nextLba: Const(0, width: sdCommandArgBits),
         fromCache: Const(0),
@@ -893,6 +1149,11 @@ class MimicSdReadPath extends BridgeModule {
         // lost when the host stops the clock. The counter wraps at the
         // same number the published one does.
         If(takeBlock, then: [blocksTaken < blocksTaken + oneBlock]),
+
+        // The gap between the blocks of a stream. It is written here, in
+        // front of the state machine, so the end of a block can load it
+        // again on the very clock this line would clear it.
+        If(~gapIdle, then: [gapLeft < gapLeft - oneGap]),
 
         // An abort that lands while a block is going out on DAT. The send
         // runs to its end bit, and this register carries the abort to that
@@ -954,6 +1215,21 @@ class MimicSdReadPath extends BridgeModule {
             ),
           ]),
           CaseItem(stateLookup, [
+            // The timer runs here as well as in the wait.
+            //
+            // A lookup takes two clocks and a hit waits for the link to
+            // finish the response, which is at most one frame. Nothing
+            // else bounds this state, and the card holds the DATA state
+            // through all of it. A card that stayed here would answer no
+            // command at all, because every command that starts a read
+            // needs the tran state, and a host reports that as a hardware
+            // interrupt timeout and gives up on the card.
+            //
+            // The timer is 0 on every path into this state, so the bound
+            // is the whole [timeoutClocks] and a healthy lookup can never
+            // reach it. The branches below all write the timer after this
+            // line, so a lookup that ends clears it.
+            timer < timer + oneTick,
             If(
               releaseLookup,
               then: [
@@ -971,15 +1247,15 @@ class MimicSdReadPath extends BridgeModule {
                 If(
                   cacheMiss,
                   then: [
-                    // The cache does not hold the block. The record goes
-                    // out on this same clock and the card waits for the
-                    // answer the way it always has. The line the block
-                    // maps to is opened for the fill, so the answer lands
-                    // in the cache as it goes out on DAT.
                     state < stateWait,
                     timer < zeroTicks,
                     seq < seqNext,
-                    fillActive < Const(1),
+                    // The chunk the record on this clock asks for. The
+                    // record carries the same value, so the card and the
+                    // runtime count the same blocks against the same tag.
+                    streamLeft < reqBlocks,
+                    // A stream writes no cache line. See [demandFill].
+                    fillActive < ~multiReg,
                   ],
                   orElse: [
                     If(
@@ -993,6 +1269,24 @@ class MimicSdReadPath extends BridgeModule {
                         state < stateSend,
                         fromCache < Const(1),
                         timer < zeroTicks,
+                      ],
+                      orElse: [
+                        If(
+                          timerDone,
+                          then: [
+                            // The cache never answered. The card gives up
+                            // and returns to tran rather than hold the
+                            // data state with no read in it. No record
+                            // was posted here, so there is nothing to
+                            // leave standing.
+                            state < stateIdle,
+                            timer < zeroTicks,
+                            failedPulse < Const(1),
+                            timeoutPulse < Const(1),
+                            multiReg < Const(0),
+                            abortSeen < Const(0),
+                          ],
+                        ),
                       ],
                     ),
                   ],
@@ -1123,43 +1417,56 @@ class MimicSdReadPath extends BridgeModule {
                 If(
                   goOn,
                   then: [
-                    // A stream. The lookup for the block after this one
-                    // goes out on this same clock, and the card asks the
-                    // runtime only if that lookup misses. `done` does NOT
-                    // pulse, because the state machine reads it as the end
-                    // of the whole transfer and would take the card out of
-                    // the data state.
-                    //
-                    // A block that WAITS on the channel is taken off
-                    // first. This is the GAP of the stream, and it is the
-                    // only moment a fill can reach the cache while a
-                    // stream runs: the card is never idle in one. The
-                    // lookup then goes out at the end of the drop, and the
-                    // fill that just landed is what makes it a hit.
-                    //
-                    // The drop costs 128 SD clocks against the 4114 that
-                    // the block before it took, and it saves the whole USB
-                    // round trip of the block after it.
-                    state < mux(gapBlock, stateDrop, stateLookup),
+                    // A stream. `done` does NOT pulse, because the state
+                    // machine reads it as the end of the whole transfer
+                    // and would take the card out of the data state.
                     If(
-                      goOnDrop,
+                      goOnSame,
                       then: [
-                        wordsLeft < allWords,
-                        dropFill < blockIsFill,
-                        dropToLookup < Const(1),
-                        dropToWait < Const(0),
+                        // The chunk still owes blocks. The card waits for
+                        // the next one of the SAME record, under the SAME
+                        // tag, and it asks the cache and the runtime for
+                        // nothing. The block is often already on the
+                        // channel, and the card then opens it on the very
+                        // next clock.
+                        state < stateWait,
+                        streamLeft < streamLeft - oneBlockCount,
+                        gapLeft < fullGap,
                       ],
-                    ),
-                    If(
-                      goOnDirect,
-                      then: [
-                        // The waiting fill is exactly the next block of the
-                        // stream. Start it from the FIFO without a cache
-                        // write and read round trip.
-                        state < stateSend,
-                        wordReg < input('data_word'),
-                        byteSel < Const(0, width: 2),
-                        wordsLeft < allWords - oneWord,
+                      orElse: [
+                        // The chunk is spent. The card looks the next
+                        // block up and asks for a chunk that starts there.
+                        //
+                        // A block that WAITS on the channel is taken off
+                        // first. This is the GAP of the stream, and it is
+                        // the only moment a fill can reach the cache while
+                        // a stream runs: the card is never idle in one.
+                        // The lookup then goes out at the end of the drop.
+                        //
+                        // The drop costs 128 SD clocks against the 4114
+                        // that the block before it took.
+                        state < mux(gapBlock, stateDrop, stateLookup),
+                        If(
+                          goOnDrop,
+                          then: [
+                            wordsLeft < allWords,
+                            dropFill < blockIsFill,
+                            dropToLookup < Const(1),
+                            dropToWait < Const(0),
+                          ],
+                        ),
+                        If(
+                          goOnDirect,
+                          then: [
+                            // The waiting fill is exactly the next block
+                            // of the stream. Start it from the FIFO
+                            // without a cache write and read round trip.
+                            state < stateSend,
+                            wordReg < input('data_word'),
+                            byteSel < Const(0, width: 2),
+                            wordsLeft < allWords - oneWord,
+                          ],
+                        ),
                       ],
                     ),
                     curLba < nextLba,
@@ -1185,9 +1492,11 @@ class MimicSdReadPath extends BridgeModule {
 
             // A read that arrived while the card was taking a block off
             // the channel that no read asked for. The card keeps what the
-            // read names and looks it up when the drop ends. `ready` is
-            // low on the last clock of a drop, so this can never land on
-            // the clock the drop below finishes.
+            // read names and looks it up when the drop ends. It can land
+            // on ANY clock of the drop, the last one included: the branch
+            // that ends the drop reads `startInDrop` beside the register,
+            // so a read that writes `dropToLookup` on that same clock is
+            // still armed.
             If(
               startInDrop,
               then: [
@@ -1225,7 +1534,17 @@ class MimicSdReadPath extends BridgeModule {
                       ],
                       orElse: [
                         If(
-                          dropToLookup,
+                          // `startInDrop` is read BESIDE the register,
+                          // because a read that lands on this very clock
+                          // writes the register and this branch has
+                          // already read the old value of it. A card that
+                          // read the register alone would go to idle with
+                          // the read remembered, look nothing up, and hold
+                          // the data state for ever. The alternative,
+                          // which is to refuse a read on this clock, gives
+                          // the host an R1 with ERROR and a Linux host
+                          // reports that as an I/O error.
+                          dropToLookup | startInDrop,
                           then: [
                             // A gap block of a read or of a stream. The
                             // card stays here for ONE more clock and looks

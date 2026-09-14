@@ -40,6 +40,10 @@ flowchart LR
 The sequence tag prevents a late block from answering a newer request. Tag 0
 is reserved for a speculative cache fill.
 
+Each request also carries a card generation. CMD0 advances it after the card
+invalidates its cache. The runtime clears its model at the same boundary, so
+pending speculative lines cannot survive SD card initialization.
+
 ## Write path
 
 1. The card receives one block from the SD host.
@@ -79,8 +83,17 @@ The command header is seven little-endian bytes:
 opcode:u8, address:u32, length:u16
 ```
 
-The protocol has write, read, and fixed-address stream operations. The stream
-operation moves many words through one FIFO register.
+The protocol operations are:
+
+- `0x01 WRITE`: write consecutive registers.
+- `0x02 READ`: read consecutive registers without side effects.
+- `0x03 WRITE_STREAM`: push many words through one FIFO register.
+- `0x04 READ_POP_STREAM`: read and explicitly pop each word of one FIFO.
+- `0x05 READ_THEN_POP`: read consecutive snapshot registers, then perform one
+  explicit pop after the final word.
+
+The last operation lets the runtime poll and consume one request record in one
+USB transaction. It does not make any ordinary CSR read destructive.
 
 ## Clock and reset domains
 

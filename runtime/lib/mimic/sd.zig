@@ -118,8 +118,8 @@ pub const REG_DATA_TAG: u32 = 0x6C;
 /// This register exists so that NO read of the map has a side effect. The
 /// serve loop reads REG_REQ, reads REG_REQ_HI and then writes this
 /// register, and any number of other accesses may come between the three.
-/// The cost is one more USB round trip for each record, which is nothing
-/// against the 42 ms read timeout of the card.
+/// The runtime normally combines the snapshot read and this write in one
+/// transport operation. Separate CSR accesses keep the same explicit rule.
 ///
 /// A write with the bit clear does nothing, and a write to an empty FIFO
 /// does nothing. The register reads 0.
@@ -206,6 +206,63 @@ pub const REG_DBG_CACHE_FILL: u32 = 0x88;
 /// runtime serves every build. One line holds ONE block.
 pub const REG_CACHE_LINES: u32 = 0x8C;
 
+/// REQ_SNAPSHOT_COUNT: RO. Alias of REQ_COUNT at the start of a contiguous
+/// three-word request snapshot.
+pub const REG_REQ_SNAPSHOT_COUNT: u32 = 0x90;
+/// REQ_SNAPSHOT: RO. Alias of word 0 at the request FIFO head.
+pub const REG_REQ_SNAPSHOT: u32 = 0x94;
+/// REQ_SNAPSHOT_HI: RO. Alias of word 1 at the request FIFO head.
+pub const REG_REQ_SNAPSHOT_HI: u32 = 0x98;
+/// First address of the one status read that the serve loop makes.
+///
+/// The window runs from DATA_IN_COUNT to REQ_SNAPSHOT_HI. ONE read of it
+/// gives the free space of the read data channel, the words waiting on the
+/// write data channel, the number of records that wait and the record at
+/// the head of the request FIFO. No address in the window has a side
+/// effect on a read, so the loop pays ONE USB round trip where it used to
+/// pay three, and every fill it then sends is sized by a credit that is
+/// only microseconds old.
+pub const REG_STATUS_FIRST: u32 = REG_DATA_IN_COUNT;
+
+/// Words in the status window. See `REG_STATUS_FIRST`.
+pub const STATUS_WORDS: usize =
+    (REG_REQ_SNAPSHOT_HI - REG_STATUS_FIRST) / 4 + 1;
+
+/// Index of DATA_IN_COUNT inside the status window.
+pub const STATUS_DATA_IN_COUNT: usize =
+    (REG_DATA_IN_COUNT - REG_STATUS_FIRST) / 4;
+/// Index of DATA_OUT_COUNT inside the status window.
+pub const STATUS_DATA_OUT_COUNT: usize =
+    (REG_DATA_OUT_COUNT - REG_STATUS_FIRST) / 4;
+/// Index of REQ_SNAPSHOT_COUNT inside the status window.
+pub const STATUS_REQ_COUNT: usize =
+    (REG_REQ_SNAPSHOT_COUNT - REG_STATUS_FIRST) / 4;
+/// Index of word 0 of the record at the head, inside the status window.
+pub const STATUS_REQ: usize = (REG_REQ_SNAPSHOT - REG_STATUS_FIRST) / 4;
+/// Index of word 1 of the record at the head, inside the status window.
+pub const STATUS_REQ_HI: usize = (REG_REQ_SNAPSHOT_HI - REG_STATUS_FIRST) / 4;
+
+comptime {
+    // The record must be the LAST thing the window reads. The pop that
+    // follows the window takes that record away, so a field read after it
+    // would belong to the record the loop never saw.
+    if (STATUS_REQ_HI != STATUS_WORDS - 1)
+        @compileError("REQ_SNAPSHOT_HI must end the status window");
+    if (STATUS_REQ + 1 != STATUS_REQ_HI)
+        @compileError("the two record words must be next to each other");
+    if (STATUS_REQ_COUNT + 1 != STATUS_REQ)
+        @compileError("the record count must come before the record");
+}
+
+/// DBG_READ_START: RO. Demand data frames started on DAT.
+pub const REG_DBG_READ_START: u32 = 0x9C;
+/// DBG_READ_DONE: RO. Demand data frames completed on DAT.
+pub const REG_DBG_READ_DONE: u32 = 0xA0;
+/// DBG_READ_DROP: RO. Blocks discarded because they did not match a request.
+pub const REG_DBG_READ_DROP: u32 = 0xA4;
+/// DBG_READ_ABORT: RO. Reads stopped by the SD host or disabled runtime.
+pub const REG_DBG_READ_ABORT: u32 = 0xA8;
+
 /// The bits of CARD_STATE that hold the state. The other bits read 0.
 pub const CARD_STATE_MASK: u32 = 0xF;
 
@@ -246,7 +303,7 @@ pub const ID_MAGIC: u32 = 0x4D494D43;
 
 /// The interface version this runtime speaks, packed major << 16 |
 /// minor << 8 | patch.
-pub const INTERFACE_VERSION: u32 = 0x00010000;
+pub const INTERFACE_VERSION: u32 = 0x00000100;
 
 // CTRL register bits.
 /// Bit 0: enable the device.
@@ -531,11 +588,11 @@ test "ID magic spells MIMC little-endian" {
     try std.testing.expectEqualSlices(u8, &[_]u8{ 0x43, 0x4D, 0x49, 0x4D }, &b);
 }
 
-test "interface version packs 1.0.0 and decodes back" {
-    try std.testing.expectEqual(@as(u32, 0x00010000), INTERFACE_VERSION);
+test "interface version packs 0.1.0 and decodes back" {
+    try std.testing.expectEqual(@as(u32, 0x00000100), INTERFACE_VERSION);
     const v = decodeInterfaceVersion(INTERFACE_VERSION);
-    try std.testing.expectEqual(@as(u16, 1), v.major);
-    try std.testing.expectEqual(@as(u8, 0), v.minor);
+    try std.testing.expectEqual(@as(u16, 0), v.major);
+    try std.testing.expectEqual(@as(u8, 1), v.minor);
     try std.testing.expectEqual(@as(u8, 0), v.patch);
 }
 

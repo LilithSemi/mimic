@@ -224,6 +224,10 @@ void main() {
       // loads it.
       expect(ports, contains('input logic [127:0] csd'));
       expect(ports, contains('input logic csd_valid'));
+      // The capacity uses a separate coherent snapshot. The command decoder
+      // must reject an address before it starts a data transfer.
+      expect(ports, contains('input logic [31:0] num_blocks'));
+      expect(ports, contains('input logic num_blocks_valid'));
       expect(ports, contains('output logic [3:0] card_state'));
       expect(ports, isNot(contains('inout')));
     });
@@ -533,7 +537,7 @@ void main() {
       expect(sv, contains("8'h64 :"));
     });
 
-    test('the CSD crosses to the SD domain through a handshake', () async {
+    test('the CSD and capacity cross through handshakes', () async {
       final soc = buildMimicSoc(
         name: 'mimic_csd_cdc_elab',
         target: _orangeCrabTarget(),
@@ -546,6 +550,10 @@ void main() {
       // the card read a CSD that is part old and part new.
       expect(sv, contains('module HarborCdcHandshake'));
       final cdcArgs = _instanceArgs(sv, 'HarborCdcHandshake  csd_cdc(');
+      final capacityArgs = _instanceArgs(
+        sv,
+        'HarborCdcHandshake  num_blocks_cdc(',
+      );
       final csrArgs = _instanceArgs(sv, 'MimicSdCard  mimic_sd_card(');
       final cardArgs = _instanceArgs(sv, 'MimicSdCardDevice  sd_card_device(');
 
@@ -577,13 +585,21 @@ void main() {
         reason: 'the acknowledge stands until the request drops',
       );
 
-      // The CSR slave gives the 128-bit word to the source side, and the
-      // card takes the far side of the crossing and not the raw register.
+      // The CSR slave gives the 128-bit CSD to the source side, and the card
+      // takes the far side of the crossing and not the raw register.
       expect(_argNet(cdcArgs, 'src_data'), equals(_argNet(csrArgs, 'csd')));
       expect(_argNet(cdcArgs, 'dst_data'), equals(_argNet(cardArgs, 'csd')));
       expect(
         _argNet(cdcArgs, 'dst_valid'),
         equals(_argNet(cardArgs, 'csd_valid')),
+      );
+      expect(
+        _argNet(capacityArgs, 'dst_valid'),
+        equals(_argNet(cardArgs, 'num_blocks_valid')),
+      );
+      expect(
+        _argNet(capacityArgs, 'dst_clk'),
+        equals(_argNet(cdcArgs, 'dst_clk')),
       );
 
       // The slave really decodes the four CSD offsets.

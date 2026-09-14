@@ -268,8 +268,8 @@ void main() {
     final scr = await readScr(b);
     expect(scr.crcOk, isTrue, reason: 'the SCR carries a bad CRC16.');
     // SD_BUS_WIDTHS is the low nibble of byte 1 of the SCR. A 1 is the
-    // 1-bit bus alone.
-    expect(scr.bytes[1] & 0x0F, 1);
+    // required 1-bit and 4-bit widths.
+    expect(scr.bytes[1] & 0x0F, 5);
 
     final status = await readSwitchStatus(b, _checkNoChange);
     expect(status.crcOk, isTrue, reason: 'the status carries a bad CRC16.');
@@ -291,8 +291,8 @@ void main() {
     }
 
     // ACMD6 and CMD6 are the same index and must stay two commands. ACMD6
-    // still refuses the 4-bit bus that the SCR does not advertise, and it
-    // sends no data frame at all.
+    // still refuses the 4-bit bus until that datapath exists, and it sends
+    // no data frame at all. The board limits the host to one line.
     final ok = await appCommand(b, sdAcmdSetBusWidth, 0);
     expect(ok.payload & _errorBit, 0, reason: 'ACMD6 refused the 1-bit bus.');
     final quiet = await b.host.receiveDataBlock(

@@ -456,6 +456,7 @@ HarborSoC buildMimicSoc({
   int manufactureMonth = sdCidDefaultManufactureMonth,
   HarborBoard? board,
   int cacheLines = sdCacheDefaultLines,
+  int cmdStallCycles = HarborUsbFsDevice.ep1StartStallMax,
 }) {
   if (!sdCacheLinesValid(cacheLines)) {
     // The index of the block cache is the LOW bits of the block address, so
@@ -520,6 +521,7 @@ HarborSoC buildMimicSoc({
       idVendor: idVendor,
       idProduct: idProduct,
       bulkEndpoints: bulkEndpoints,
+      cmdStallCycles: cmdStallCycles,
       serialNumber: serialNumber,
     ),
     tbCmdPorts: tbCmdPorts,
@@ -718,6 +720,13 @@ HarborSoC buildMimicSoc({
     'dbg_cache_hit': (cardPort: 'dbg_cache_hit_gray', width: sdDbgEventBits),
     'dbg_cache_miss': (cardPort: 'dbg_cache_miss_gray', width: sdDbgEventBits),
     'dbg_cache_fill': (cardPort: 'dbg_cache_fill_gray', width: sdDbgEventBits),
+    'dbg_read_start': (
+      cardPort: 'dbg_read_tx_start_gray',
+      width: sdDbgEventBits,
+    ),
+    'dbg_read_done': (cardPort: 'dbg_read_tx_done_gray', width: sdDbgEventBits),
+    'dbg_read_drop': (cardPort: 'dbg_read_drop_gray', width: sdDbgEventBits),
+    'dbg_read_abort': (cardPort: 'dbg_read_abort_gray', width: sdDbgEventBits),
   };
   dbgCounters.forEach((csrPort, spec) {
     final sync = MimicSdGraySync(width: spec.width, name: '${csrPort}_sync');
@@ -777,6 +786,28 @@ HarborSoC buildMimicSoc({
   csdCdc.input('dst_ready').srcConnection! <= ~csdCdc.output('dst_valid');
   card.input('csd').srcConnection! <= csdCdc.output('dst_data');
   card.input('csd_valid').srcConnection! <= csdCdc.output('dst_valid');
+
+  // Harbor names a handshake module by its class and not by its width. Use
+  // the same 128-bit shape as the CSD crossing so synthesis can reuse one
+  // definition. The high bits are zero and the card takes the low 32 bits.
+  final numBlocksCdc = HarborCdcHandshake(
+    dataWidth: sdResponseRegBits,
+    name: 'num_blocks_cdc',
+  );
+  soc.addSubModule(numBlocksCdc);
+  numBlocksCdc.input('src_clk').srcConnection! <= sysClk;
+  numBlocksCdc.input('src_reset').srcConnection! <= sysReset;
+  numBlocksCdc.input('src_data').srcConnection! <=
+      sdCard.output('num_blocks').zeroExtend(sdResponseRegBits);
+  numBlocksCdc.input('src_valid').srcConnection! <= Const(1);
+  numBlocksCdc.input('dst_clk').srcConnection! <= sdClk;
+  numBlocksCdc.input('dst_reset').srcConnection! <= sdReset;
+  numBlocksCdc.input('dst_ready').srcConnection! <=
+      ~numBlocksCdc.output('dst_valid');
+  card.input('num_blocks').srcConnection! <=
+      numBlocksCdc.output('dst_data').slice(sdCommandArgBits - 1, 0);
+  card.input('num_blocks_valid').srcConnection! <=
+      numBlocksCdc.output('dst_valid');
 
   // The SD domain reset, as the SoC domain sees it.
   //
@@ -843,20 +874,25 @@ HarborSoC buildMimicSoc({
   sdCard.input('req_empty').srcConnection! <=
       reqFifo.output('rd_empty') | sdHeld;
 
-  // The data channel holds FOUR blocks. The card cannot start a block on
-  // DAT before it holds all of it, so the channel must hold a whole block,
-  // and it must hold SEVERAL for the link to be fast: one block leaves the
-  // channel in 4114 SD clocks, which is 165 us at 25 MHz, and one USB
-  // full-speed round trip is about 1 ms. A runtime that can hold only one
-  // block therefore always answers late, so it must be able to push the
-  // blocks of a stream before the card asks for them.
+  // The data channel holds SIXTEEN blocks. The card cannot start a block
+  // on DAT before it holds all of it, so the channel must hold a whole
+  // block, and it must hold MANY for the link to be fast: one block leaves
+  // the channel in 4114 SD clocks, which is 165 us at 25 MHz. A runtime
+  // that can hold only one block therefore always answers late, so it must
+  // be able to push the blocks of a stream before the card asks for them.
   //
-  // The depth costs NOTHING. The buffer is on ONE DP16KD, which is 16
-  // kbit, so it holds 512 words of 32 bits: 128 words used one whole
-  // DP16KD and left three quarters of it empty. Built from flops the same
-  // buffer costs thousands of them, and 128 words of flops alone took the
-  // SoC domain from 89 MHz down to 55 MHz. A target with no block RAM
-  // falls back to flops on its own, so the flag is safe on every board.
+  // The depth also bounds ONE push. The runtime puts the whole batch on
+  // the link in one USB transfer, and the card drops a push it has no room
+  // for, so the batch can never be larger than the free space here. A
+  // sixteen block channel is what lets one transfer carry 8 KB.
+  //
+  // The depth costs no BLOCK RAM. The buffer is four 8-bit lanes and each
+  // lane is one DP16KD in x9 mode, which holds 2048 entries. Four blocks
+  // used 512 of those 2048 and left three quarters of every lane empty, so
+  // sixteen blocks fill the same four block RAMs exactly. Built from flops
+  // the same buffer costs thousands of them, and 128 words of flops alone
+  // took the SoC domain from 89 MHz down to 55 MHz. A target with no block
+  // RAM falls back to flops on its own, so the flag is safe on every board.
   //
   // The margin is one whole block, so `wr_almost_full` tells the CSR slave
   // that it cannot safely admit another block. The write channel below has

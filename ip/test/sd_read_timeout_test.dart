@@ -441,7 +441,10 @@ void main() {
       final record = await takeRecord(b);
       expect(
         record.word0,
-        sdRecordWord0(run + 1),
+        // Every walk starts with CMD0 and CMD0 moves the generation on, so
+        // the second walk reads one above the first. See the card epoch in
+        // sd_card_device.dart.
+        sdRecordWord0(run + 1, epoch: run),
         reason: 'run $run: bad record word.',
       );
       expect(

@@ -16,10 +16,14 @@
 //   would refuse one CMD18 after another for as long as read ahead kept
 //   pushing.
 //
-//   A fill must reach the cache DURING a stream. A CMD18 never leaves the
-//   card idle: it looks the next block up on the clock the link reports
-//   the end bit of this one. The card takes one waiting block off the
-//   channel in that gap.
+//   A CMD18 must stream the blocks that ALREADY WAIT on the channel with
+//   no record between them. A stream asks for a whole chunk in one record,
+//   so the runtime pushes block after block against that one record and
+//   the card must take each one off and send it without asking again.
+//
+//   A block that is only PART WAY onto the channel must not be sent. The
+//   card cannot pause in the middle of a frame on DAT, so it starts one
+//   only when it holds every word of it.
 //
 //   A block nobody asked for must NEVER be sent as the answer to a
 //   request. The tag is what keeps them apart, and the last two tests here
@@ -150,95 +154,165 @@ void main() {
     },
   );
 
-  test('three fills behind an answer stream as four ordered blocks', () async {
-    // Read ahead during CMD18, which is where boot spends nearly all of
-    // its time. The runtime answers the record for block N and pushes the
-    // fill for block N+1 behind it, which is the order it really uses. The
-    // card sends N, takes the fill off the channel in the gap at the end
-    // bit, and the lookup of N+1 then HITS: no record, no round trip.
+  test(
+    'four queued blocks of one chunk stream with no record between',
+    () async {
+      // The stream during CMD18, which is where boot spends nearly all of
+      // its time. The record asks for a whole chunk, so the runtime pushes
+      // four blocks against the ONE tag of that record and the card sends
+      // all four one after another. NO record may stand between them: a
+      // record for each block is the cost this chunk exists to remove.
+      final b = await setUpSdReadBench();
+      await wbWrite(b, MimicReg.ctrl, MimicCtrl.enable);
+      await walkToTran(b);
+
+      await b.host.idle(sdCommandGapClocks);
+      await b.host.sendCommand(sdCmdReadMultipleBlock, sdTestLba);
+      final r1 = await b.host.receiveResponse(SdResponseKind.r1);
+      expect(r1.timedOut, isFalse, reason: 'CMD18 gave no response.');
+      expect(
+        r1.payload & (1 << 19),
+        0,
+        reason: 'CMD18 answered R1 with ERROR, so no block follows.',
+      );
+
+      final first = sdTestBlockBytesFor(sdTestLba);
+      final second = sdTestBlockBytesFor(sdTestLba + 1);
+      final third = sdTestBlockBytesFor(sdTestLba + 2);
+      final fourth = sdTestBlockBytesFor(sdTestLba + 3);
+      expect(
+        first[0],
+        isNot(second[0]),
+        reason: 'the two blocks must differ, or this test proves nothing.',
+      );
+
+      // One record for the whole chunk, and four blocks of that chunk
+      // pushed against its tag with no SD clock between them.
+      final record = await takeRecord(b);
+      expect(record.lba, sdTestLba, reason: 'the record names another block.');
+      expect(
+        (record.word0 >> 16) & 0xFFFF,
+        sdStreamRecordBlocks,
+        reason: 'a CMD18 record must ask for a whole chunk.',
+      );
+      await pushBlock(b, sdBlockWordsOf(first), tag: record.seq);
+      await pushBlock(b, sdBlockWordsOf(second), tag: record.seq);
+      await pushBlock(b, sdBlockWordsOf(third), tag: record.seq);
+      await pushBlock(b, sdBlockWordsOf(fourth), tag: record.seq);
+
+      final gotFirst = await b.host.receiveDataBlock(timeoutClocks: 400);
+      expect(gotFirst.timedOut, isFalse, reason: 'block 0 never came.');
+      expect(gotFirst.crcOk, isTrue, reason: 'block 0 carries a bad CRC16.');
+      expect(gotFirst.bytes, first, reason: 'block 0 holds other bytes.');
+
+      // The three blocks after it belong to the same record and the same
+      // tag, so the card sends them straight off the channel.
+      final gotSecond = await b.host.receiveDataBlock(
+        timeoutClocks: _gapTimeoutClocks,
+      );
+      expect(
+        gotSecond.timedOut,
+        isFalse,
+        reason:
+            'block 1 never came. The card asked again instead of taking the '
+            'next block of the chunk off the channel.',
+      );
+      expect(gotSecond.crcOk, isTrue, reason: 'block 1 carries a bad CRC16.');
+      expect(
+        gotSecond.bytes,
+        second,
+        reason: 'block 1 holds other bytes than the fill carried.',
+      );
+      final gotThird = await b.host.receiveDataBlock(
+        timeoutClocks: _gapTimeoutClocks,
+      );
+      expect(gotThird.timedOut, isFalse, reason: 'block 2 never came.');
+      expect(gotThird.crcOk, isTrue, reason: 'block 2 carries a bad CRC16.');
+      expect(gotThird.bytes, third, reason: 'block 2 holds other bytes.');
+
+      final gotFourth = await b.host.receiveDataBlock(
+        timeoutClocks: _gapTimeoutClocks,
+      );
+      expect(gotFourth.timedOut, isFalse, reason: 'block 3 never came.');
+      expect(gotFourth.crcOk, isTrue, reason: 'block 3 carries a bad CRC16.');
+      expect(gotFourth.bytes, fourth, reason: 'block 3 holds other bytes.');
+
+      // The chunk still owes 28 blocks, so the card is waiting for the next
+      // one of the SAME record and has asked for NOTHING.
+      await b.host.idle(8);
+      expect(
+        await wbRead(b, MimicReg.reqCount),
+        0,
+        reason:
+            'the card posted a record in the middle of a chunk. The chunk '
+            'exists so that it does not.',
+      );
+
+      await b.host.idle(sdCommandGapClocks);
+      await b.host.sendCommand(sdCmdStopTransmission, 0);
+      final stop = await b.host.receiveResponse(SdResponseKind.r1);
+      expect(stop.timedOut, isFalse, reason: 'CMD12 gave no response.');
+      await Simulator.endSimulation();
+    },
+  );
+
+  test('a block that is part way onto the channel is not sent', () async {
+    // The card cannot pause in the middle of a frame on DAT, so it starts
+    // a block only when it holds EVERY word of it. This is the USB timing
+    // the board really shows: the SD host finishes one block while the
+    // next USB burst is still going in.
     final b = await setUpSdReadBench();
     await wbWrite(b, MimicReg.ctrl, MimicCtrl.enable);
     await walkToTran(b);
 
     await b.host.idle(sdCommandGapClocks);
     await b.host.sendCommand(sdCmdReadMultipleBlock, sdTestLba);
-    final r1 = await b.host.receiveResponse(SdResponseKind.r1);
-    expect(r1.timedOut, isFalse, reason: 'CMD18 gave no response.');
-    expect(
-      r1.payload & (1 << 19),
-      0,
-      reason: 'CMD18 answered R1 with ERROR, so no block follows.',
-    );
+    final response = await b.host.receiveResponse(SdResponseKind.r1);
+    expect(response.timedOut, isFalse, reason: 'CMD18 gave no response.');
 
     final first = sdTestBlockBytesFor(sdTestLba);
     final second = sdTestBlockBytesFor(sdTestLba + 1);
-    final third = sdTestBlockBytesFor(sdTestLba + 2);
-    final fourth = sdTestBlockBytesFor(sdTestLba + 3);
-    expect(
-      first[0],
-      isNot(second[0]),
-      reason: 'the two blocks must differ, or this test proves nothing.',
-    );
+    final record = await takeRecord(b);
+    expect(record.lba, sdTestLba, reason: 'the record names another block.');
+    await pushBlock(b, sdBlockWordsOf(first), tag: record.seq);
 
-    await answerRecord(b, first, expectLba: sdTestLba);
-    // The read ahead of the runtime, pushed behind the answer and while
-    // the card is still sending the block before it.
-    await pushFillNoDrain(b, second, lba: sdTestLba + 1);
-    await pushFillNoDrain(b, third, lba: sdTestLba + 2);
-    await pushFillNoDrain(b, fourth, lba: sdTestLba + 3);
+    // The tag of the second block arrives with a PART of its words. The
+    // count of whole blocks must stay behind until the last word is in.
+    final secondWords = sdBlockWordsOf(second);
+    await wbWrite(b, MimicReg.dataTag, record.seq);
+    for (final word in secondWords.take(16)) {
+      await wbWrite(b, MimicReg.dataIn, word);
+    }
 
     final gotFirst = await b.host.receiveDataBlock(timeoutClocks: 400);
-    expect(gotFirst.timedOut, isFalse, reason: 'block 0 never came.');
-    expect(gotFirst.crcOk, isTrue, reason: 'block 0 carries a bad CRC16.');
-    expect(gotFirst.bytes, first, reason: 'block 0 holds other bytes.');
+    expect(gotFirst.timedOut, isFalse, reason: 'the first block never came.');
+    expect(gotFirst.bytes, first, reason: 'the first block has wrong bytes.');
 
-    // Each fill is already the next address of the stream. The card sends all
-    // three directly from the FIFO without a request between blocks.
-    final gotSecond = await b.host.receiveDataBlock(
-      timeoutClocks: _gapTimeoutClocks,
+    // The card holds the bus while the rest of the block is still coming.
+    // A card that started here would send 16 words and then whatever the
+    // channel held after them.
+    final torn = await b.host.receiveDataBlock(
+      timeoutClocks: 400,
+      strict: false,
     );
     expect(
-      gotSecond.timedOut,
-      isFalse,
-      reason:
-          'block 1 never came. The card did not take the fill in the gap of '
-          'the stream, so the lookup missed and nothing answered it.',
+      torn.timedOut,
+      isTrue,
+      reason: 'the card started a block it did not hold whole.',
     );
-    expect(gotSecond.crcOk, isTrue, reason: 'block 1 carries a bad CRC16.');
-    expect(
-      gotSecond.bytes,
-      second,
-      reason: 'block 1 holds other bytes than the fill carried.',
-    );
-    final gotThird = await b.host.receiveDataBlock(
-      timeoutClocks: _gapTimeoutClocks,
-    );
-    expect(gotThird.timedOut, isFalse, reason: 'block 2 never came.');
-    expect(gotThird.crcOk, isTrue, reason: 'block 2 carries a bad CRC16.');
-    expect(gotThird.bytes, third, reason: 'block 2 holds other bytes.');
-
-    final gotFourth = await b.host.receiveDataBlock(
-      timeoutClocks: _gapTimeoutClocks,
-    );
-    expect(gotFourth.timedOut, isFalse, reason: 'block 3 never came.');
-    expect(gotFourth.crcOk, isTrue, reason: 'block 3 carries a bad CRC16.');
-    expect(gotFourth.bytes, fourth, reason: 'block 3 holds other bytes.');
-
-    // The stream asks for block 4 at the end of the queued window. Nothing
-    // has answered it, so exactly one record stands.
-    await b.host.idle(8);
     expect(
       await wbRead(b, MimicReg.reqCount),
-      1,
-      reason:
-          'a queued fill posted a record of its own or the stream did not '
-          'advance through all four blocks.',
+      0,
+      reason: 'the chunk still owes blocks, so the card asks for nothing.',
     );
 
-    await b.host.idle(sdCommandGapClocks);
-    await b.host.sendCommand(sdCmdStopTransmission, 0);
-    final stop = await b.host.receiveResponse(SdResponseKind.r1);
-    expect(stop.timedOut, isFalse, reason: 'CMD12 gave no response.');
+    for (final word in secondWords.skip(16)) {
+      await wbWrite(b, MimicReg.dataIn, word);
+    }
+    final gotSecond = await b.host.receiveDataBlock(timeoutClocks: 400);
+    expect(gotSecond.timedOut, isFalse, reason: 'the block never came.');
+    expect(gotSecond.crcOk, isTrue, reason: 'the block has a bad CRC16.');
+    expect(gotSecond.bytes, second, reason: 'the block has wrong bytes.');
     await Simulator.endSimulation();
   });
 

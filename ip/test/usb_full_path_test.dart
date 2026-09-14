@@ -92,7 +92,7 @@ void main() {
     );
     expect(
       mimicWord(rbytes.sublist(4, 8)),
-      equals(0x00010000),
+      equals(0x00000100),
       reason: 'VERSION word',
     );
   });
@@ -134,7 +134,7 @@ void main() {
     );
     expect(
       mimicWord(all.sublist(4, 8)),
-      equals(0x00010000),
+      equals(0x00000100),
       reason: 'word 1 is VERSION',
     );
     // The bulk IN data toggle must alternate across the four packets.
@@ -294,7 +294,15 @@ void main() {
   // sends a NEW command must not wedge the engine. The new command starts a
   // new transfer, because the frame before it ended with a short packet.
   test('a new command after an abandoned response still preempts', () async {
-    final tb = await buildMimicUsbTb('mimic_usb_preempt_tb');
+    // The bound that frees a command from a response nobody is draining is
+    // MILLIONS of cycles in hardware, because a healthy wait lasts as long
+    // as the answer in front takes to drain. A simulation cannot run that
+    // far, so this bench sets a small one and reaches it. See
+    // [HarborUsbFsDevice.ep1StartStallCycles].
+    final tb = await buildMimicUsbTb(
+      'mimic_usb_preempt_tb',
+      cmdStallCycles: 16,
+    );
     await tb.enumerate();
 
     // READ 128 bytes: four IN packets. Take the first packet only and walk
