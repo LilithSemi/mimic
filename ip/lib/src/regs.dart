@@ -11,7 +11,7 @@
 ///   base [mimicCsrBase] (0x00000000).
 ///
 ///   0x00 ID              RO  reads 0x4D494D43 (the 'MIMC' magic)
-///   0x04 VERSION         RO  reads 0x00010000 (interface version 1.0.0)
+///   0x04 VERSION         RO  reads 0x00010100 (interface version 1.1.0)
 ///   0x08 CTRL            RW  reset 0
 ///   0x0C STATUS          RO  reads 0
 ///   0x10 NUM_BLOCKS      RW  reset 0
@@ -46,6 +46,10 @@
 ///   0x84 DBG_CACHE_MISS  RO  reads the block cache did not hold
 ///   0x88 DBG_CACHE_FILL  RO  lines the block cache finished filling
 ///   0x8C CACHE_LINES     RO  lines the block cache of this build has
+///   0x9C DBG_READ_START  RO  demand data frames started
+///   0xA0 DBG_READ_DONE   RO  demand data frames completed
+///   0xA4 DBG_READ_DROP   RO  unmatched blocks discarded
+///   0xA8 DBG_READ_ABORT  RO  reads stopped by the SD host
 ///
 /// NO ADDRESS OF THIS MAP HAS A SIDE EFFECT ON READ.
 ///   A read of any address, at any time, in any order, changes no state of
@@ -65,7 +69,7 @@
 ///   REQ_HI, write REQ_POP. Any number of other accesses may come between
 ///   them, in any order, and the record is the same record throughout. The
 ///   cost is one more USB round trip for each record, which is nothing
-///   against the 42 ms read timeout of the card.
+///   against the 168 ms read timeout of the card.
 ///
 ///   A write of REQ_POP with bit 0 clear does nothing, and a write to an
 ///   EMPTY channel does nothing.
@@ -159,8 +163,9 @@ class MimicReg {
   /// REQ: read-only. Word 0 of the record at the head of the request
   /// channel, with NO side effect.
   ///
-  /// A record is two words. Word 0 holds the opcode in bits 7 to 0, the
-  /// SEQUENCE TAG in bits 15 to 8 and the block count in bits 31 to 16.
+  /// A record is two words. Word 0 holds the opcode in bits 3 to 0, the
+  /// CARD GENERATION in bits 7 to 4, the SEQUENCE TAG in bits 15 to 8 and
+  /// the block count in bits 31 to 16.
   /// Word 1 holds the BLOCK address, which is not a byte address, and it
   /// lives at [reqHi]. Opcode 1 is read_blocks and it is the only one
   /// defined. An unknown opcode still takes the whole record, so a reader
@@ -426,6 +431,37 @@ class MimicReg {
   /// block, so the store is this many blocks.
   static const int cacheLines = 0x8C;
 
+  /// REQ_SNAPSHOT_COUNT: read-only. Whole records waiting at the request
+  /// channel head. This is an alias of [reqCount] placed beside the two
+  /// snapshot words so one burst reads the complete request state.
+  static const int reqSnapshotCount = 0x90;
+
+  /// REQ_SNAPSHOT: read-only. Word 0 at the request channel head. This is
+  /// an alias of [req] and has no side effect.
+  static const int reqSnapshot = 0x94;
+
+  /// REQ_SNAPSHOT_HI: read-only. Word 1 at the request channel head. This
+  /// is an alias of [reqHi] and has no side effect.
+  ///
+  /// A burst starts at [reqSnapshotCount]. If it reads a count of one, the
+  /// head cannot change before [reqPop], so both following words belong to
+  /// that record. If it reads zero, the runtime ignores both words.
+  static const int reqSnapshotHi = 0x98;
+
+  /// DBG_READ_START: read-only. Demand data frames started on DAT.
+  static const int dbgReadStart = 0x9C;
+
+  /// DBG_READ_DONE: read-only. Demand data frames completed on DAT.
+  static const int dbgReadDone = 0xA0;
+
+  /// DBG_READ_DROP: read-only. Blocks discarded because they did not
+  /// answer the active request.
+  static const int dbgReadDrop = 0xA4;
+
+  /// DBG_READ_ABORT: read-only. Reads stopped by an SD host command or by
+  /// the runtime disabling the card.
+  static const int dbgReadAbort = 0xA8;
+
   /// The three block cache counters, in address order.
   static const List<int> dbgCache = [dbgCacheHit, dbgCacheMiss, dbgCacheFill];
 
@@ -446,12 +482,12 @@ class MimicRegValue {
   /// ID register magic: 'MIMC' packed little-endian.
   static const int id = 0x4D494D43;
 
-  /// VERSION register: interface version 1.0.0 packed as
+  /// VERSION register: interface version 1.1.0 packed as
   /// major << 16 | minor << 8 | patch.
-  static const int version = 0x00010000;
+  static const int version = 0x00010100;
 
   /// Interface version as a dotted string.
-  static const String versionString = '1.0.0';
+  static const String versionString = '1.1.0';
 }
 
 /// CTRL register bits.
@@ -585,4 +621,17 @@ class MimicUsbOpcode {
   /// WRITE_STREAM: like WRITE, but the address stays fixed. Each full word
   /// lands on the same address, so the target acts as a FIFO.
   static const int writeStream = 0x03;
+
+  /// READ_POP_STREAM: read words repeatedly from one address and write bit 0
+  /// to a second address after each word. The low 16 bits of the command
+  /// address hold the read address. The high 16 bits hold the pop address.
+  ///
+  /// This is an explicit transport operation. A normal READ still has no
+  /// side effect, and no CSR address gains a side effect on read.
+  static const int readPopStream = 0x04;
+
+  /// READ_THEN_POP: read consecutive words and write bit 0 to a second
+  /// address once, after the final word. Addresses are packed like
+  /// [readPopStream].
+  static const int readThenPop = 0x05;
 }

@@ -16,6 +16,11 @@ stdenv.mkDerivation (finalAttrs: {
     zig
   ];
 
+  postInstall = ''
+    install -Dm444 60-mimic.rules \
+      $out/lib/udev/rules.d/60-mimic.rules
+  '';
+
   passthru.shell = mkShell {
     name = "mimic-rt-dev-shell";
     packages = [

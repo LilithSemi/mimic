@@ -32,10 +32,14 @@ const int _blockLenError = 1 << 29;
 /// The 8 bytes of the SCR this card sends, as LITERALS.
 ///
 /// SCR_STRUCTURE 0, SD_SPEC 2, DATA_STAT_AFTER_ERASE 0, SD_SECURITY 3 and
-/// SD_BUS_WIDTHS 1, which is the 1-bit bus alone. The value is written out
+/// SD_BUS_WIDTHS 5, which reports the required 1-bit and 4-bit widths. The
+/// value is written out
 /// here and not built by the same helper the card uses, so a helper that
 /// changes in both places at once cannot pass this test.
-const List<int> _scrBytes = [0x02, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+const List<int> _scrBytes = [0x02, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+/// Bytes in the SD Status Register that ACMD13 sends.
+const int _sdStatusBytes = 64;
 
 void main() {
   tearDown(Simulator.reset);
@@ -63,7 +67,7 @@ void main() {
     await Simulator.endSimulation();
   });
 
-  test('the SCR and ACMD6 agree about the bus width', () async {
+  test('the SCR is spec compliant while the datapath stays 1-bit', () async {
     final b = await setUpSdReadBench();
     await wbWrite(b, MimicReg.ctrl, MimicCtrl.enable);
     await walkToTran(b);
@@ -73,10 +77,10 @@ void main() {
     // of byte 1. A 1 is the 1-bit bus and a 4 is the 4-bit bus.
     expect(
       scr.bytes[1] & 0x0F,
-      1,
+      5,
       reason:
-          'the SCR must advertise the 1-bit bus alone, because the card '
-          'refuses ACMD6 for the 4-bit bus.',
+          'Linux requires every SD card to report both standard widths. '
+          'The board device tree limits this datapath to one line.',
     );
 
     final ok = await appCommand(b, sdAcmdSetBusWidth, 0);
@@ -90,6 +94,31 @@ void main() {
           'ACMD6 accepted the 4-bit bus. The card drives DAT0 alone, so a '
           'host that takes that answer reads noise.',
     );
+    await Simulator.endSimulation();
+  });
+
+  test('ACMD13 sends the 64-byte SD Status Register', () async {
+    final b = await setUpSdReadBench();
+    await wbWrite(b, MimicReg.ctrl, MimicCtrl.enable);
+    await walkToTran(b);
+
+    final answer = await appCommand(b, sdAcmdSdStatus, 0);
+    expect(
+      answer.payload & _errorBit,
+      0,
+      reason: 'ACMD13 answered R1 with ERROR, so no SD status follows.',
+    );
+    final status = await b.host.receiveDataBlock(
+      blockBytes: _sdStatusBytes,
+      timeoutClocks: 700,
+    );
+    expect(status.timedOut, isFalse, reason: 'ACMD13 sent nothing on DAT.');
+    expect(status.framingOk, isTrue, reason: 'the SD status is not framed.');
+    expect(status.crcOk, isTrue, reason: 'the SD status has a bad CRC16.');
+    expect(status.bytes, List<int>.filled(_sdStatusBytes, 0));
+
+    await b.host.idle(4);
+    expect(b.cardState, sdCardStateTran);
     await Simulator.endSimulation();
   });
 

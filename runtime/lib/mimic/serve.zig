@@ -23,12 +23,17 @@ const std = @import("std");
 const Io = std.Io;
 const sd = @import("sd.zig");
 const Device = @import("device.zig").Device;
+const WriteStreamGroup = @import("device.zig").WriteStreamGroup;
 
 /// Words in one request record.
 pub const REQUEST_WORDS: usize = 2;
 
 /// Words in one 512-byte block.
 pub const BLOCK_WORDS: usize = sd.BLOCK_SIZE / 4;
+
+/// Blocks in one USB read-ahead burst. This matches the four-block DATA_IN
+/// channel in the current gateware.
+const READ_AHEAD_BURST_BLOCKS: usize = 4;
 
 comptime {
     // The FIFO carries 32-bit words, so a block that is not a whole number
@@ -46,7 +51,8 @@ comptime {
 
 /// What the device asks the runtime to do.
 ///
-/// The value is the low byte of the first word of a request record.
+/// The value is the low nibble of the first word of a request record. The
+/// high nibble of that byte carries the card generation.
 ///
 /// The two write opcodes carry one 512-byte block each on the write data
 /// channel, so a write record is one block and the `blocks` field of the
@@ -67,7 +73,8 @@ pub const RequestOp = enum(u8) {
 ///
 /// The record is two 32-bit words, read from the REQ FIFO in order:
 ///
-///     word 0: op:u8 [7:0], seq:u8 [15:8], blocks:u16 [31:16]
+///     word 0: op:u4 [3:0], epoch:u4 [7:4], seq:u8 [15:8],
+///             blocks:u16 [31:16]
 ///     word 1: lba:u32
 ///
 /// Word 0 comes from REG_REQ and word 1 from REG_REQ_HI. NEITHER read has
@@ -90,10 +97,12 @@ pub const Request = struct {
     blocks: u16,
     lba: u32,
     seq: u8 = 0,
+    epoch: u4 = 0,
 
     pub fn words(self: Request) [REQUEST_WORDS]u32 {
         return .{
-            @as(u32, self.op) | (@as(u32, self.seq) << 8) |
+            (@as(u32, self.op) & 0x0F) | (@as(u32, self.epoch) << 4) |
+                (@as(u32, self.seq) << 8) |
                 (@as(u32, self.blocks) << 16),
             self.lba,
         };
@@ -104,7 +113,8 @@ pub const Request = struct {
 /// is trusted here. `serveRequest` checks each one.
 pub fn decodeRequest(words: [REQUEST_WORDS]u32) Request {
     return .{
-        .op = @truncate(words[0]),
+        .op = @truncate(words[0] & 0x0F),
+        .epoch = @truncate(words[0] >> 4),
         .seq = @truncate(words[0] >> 8),
         .blocks = @truncate(words[0] >> 16),
         .lba = words[1],
@@ -209,9 +219,9 @@ pub const Options = struct {
     /// caller that asked for nothing must get exactly the traffic the
     /// record asked for. `--read-ahead` is the flag.
     ///
-    /// This is the SIMPLEST policy that proves the mechanism and it is
-    /// deliberately not a predictor. The policy lives on this side of the
-    /// link precisely so that it can grow with no bitstream change.
+    /// The host opens a window only after consecutive requests prove a
+    /// sequential walk. The policy lives on this side of the link so that it
+    /// can change with no bitstream change.
     read_ahead: u16 = 0,
 };
 
@@ -222,6 +232,14 @@ pub const Options = struct {
 /// several round trips and never adds a whole block of delay. See
 /// `Options.space_poll_wait_us`.
 pub const CLI_SPACE_POLL_WAIT_US: u32 = 200;
+
+/// Microseconds the CLI waits after an idle request-channel poll.
+///
+/// The USB transaction itself paces the loop, but a continuously queued next
+/// poll can still monopolize host-controller scheduling. This backoff is less
+/// than one percent of the card's demand timeout and leaves room for the block
+/// transfer that answers a request.
+pub const CLI_IDLE_POLL_WAIT_US: u32 = 200;
 
 /// What the serve loop did. `--stats` reports these.
 pub const Stats = struct {
@@ -273,6 +291,11 @@ pub const MODEL_LINES: usize = 1024;
 /// The value that marks a model line as holding no block.
 const NO_BLOCK: u64 = std.math.maxInt(u64);
 
+/// Consecutive read requests required before speculative traffic starts.
+/// Short filesystem metadata walks must not occupy the FIFO, while a file
+/// stream quickly clears this threshold.
+const READ_AHEAD_SEQUENCE: u8 = 8;
+
 /// The host model of what the card cache holds.
 ///
 /// The card does the LOOKUP and no policy, so the HOST chooses what
@@ -294,6 +317,9 @@ pub const CacheModel = struct {
     /// The block each line holds, or `NO_BLOCK` for a line that holds
     /// none.
     blocks: [MODEL_LINES]u64 = @splat(NO_BLOCK),
+    /// True when the named block was sent as a speculative fill but may
+    /// still be crossing the data channel into the card cache.
+    pending: [MODEL_LINES]bool = @splat(false),
 
     /// Sizes the model from what CACHE_LINES reported.
     ///
@@ -313,6 +339,7 @@ pub const CacheModel = struct {
     /// Forgets every line.
     pub fn clear(self: *CacheModel) void {
         self.blocks = @splat(NO_BLOCK);
+        self.pending = @splat(false);
     }
 
     /// The line that `lba` maps to.
@@ -332,7 +359,30 @@ pub const CacheModel = struct {
     /// from whatever held it before. The card does the same.
     pub fn insert(self: *CacheModel, lba: u64) void {
         if (self.lines == 0) return;
-        self.blocks[self.index(lba)] = lba;
+        const line = self.index(lba);
+        self.blocks[line] = lba;
+        self.pending[line] = false;
+    }
+
+    /// Records a speculative fill that has entered the transport but may
+    /// not yet have reached the card cache.
+    pub fn insertPending(self: *CacheModel, lba: u64) void {
+        if (self.lines == 0) return;
+        const line = self.index(lba);
+        self.blocks[line] = lba;
+        self.pending[line] = true;
+    }
+
+    /// True when `lba` is a speculative fill still in flight.
+    pub fn isPending(self: *const CacheModel, lba: u64) bool {
+        if (!self.holds(lba)) return false;
+        return self.pending[self.index(lba)];
+    }
+
+    /// Marks an in-flight fill as committed after the card asks for it.
+    pub fn commit(self: *CacheModel, lba: u64) void {
+        if (!self.holds(lba)) return;
+        self.pending[self.index(lba)] = false;
     }
 
     /// Records that the card no longer holds `lba`.
@@ -344,7 +394,10 @@ pub const CacheModel = struct {
     pub fn remove(self: *CacheModel, lba: u64) void {
         if (self.lines == 0) return;
         const line = self.index(lba);
-        if (self.blocks[line] == lba) self.blocks[line] = NO_BLOCK;
+        if (self.blocks[line] == lba) {
+            self.blocks[line] = NO_BLOCK;
+            self.pending[line] = false;
+        }
     }
 };
 
@@ -369,6 +422,13 @@ pub const Server = struct {
     /// What the card cache holds, as far as this side knows.
     cache: CacheModel = .{},
 
+    /// The generation carried by the last request.
+    ///
+    /// CMD0 advances it after the card invalidates every cache line. The
+    /// first request of a new generation clears the host model before a
+    /// pending line can suppress the answer that the card now needs.
+    card_epoch: ?u4 = null,
+
     /// The next block and fixed end of the read-ahead window.
     ///
     /// The read ahead runs AFTER the batch of records, not inside it. The
@@ -377,6 +437,11 @@ pub const Server = struct {
     ahead_from: u64 = 0,
     ahead_end: u64 = 0,
     ahead_owed: bool = false,
+    /// End of the last read request. A new request that starts here proves
+    /// a sequential access before speculative traffic is sent.
+    last_read_end: u64 = NO_BLOCK,
+    /// Length of the current run of consecutive read requests.
+    sequential_reads: u8 = 0,
 
     /// Writes NUM_BLOCKS, so the card reports the size of the image.
     pub fn publishCapacity(self: *Server) !void {
@@ -393,6 +458,13 @@ pub const Server = struct {
     /// `CacheModel.configure`.
     pub fn learnCache(self: *Server) !void {
         self.cache.configure(try self.device.regRead(sd.REG_CACHE_LINES));
+    }
+
+    /// Seeds the conservative DATA_IN credit before the card starts.
+    /// The first demand can then send its block without paying a register
+    /// read while the SD host waits for data.
+    pub fn learnDataInCredit(self: *Server) !void {
+        self.credit_words = try self.device.regRead(sd.REG_DATA_IN_COUNT);
     }
 
     /// Turns the card on. A read-only image also sets the read-only bit, so
@@ -459,25 +531,26 @@ pub const Server = struct {
     /// so a signal stops the loop between passes and never in the middle of
     /// a block.
     pub fn servePending(self: *Server) !u32 {
-        const pending = try self.device.regRead(sd.REG_REQ_COUNT);
+        // One transport operation reads the count and both snapshot words,
+        // then pops the record once. On an empty channel the pop does
+        // nothing. This makes an idle poll and a request consume one USB
+        // round trip each while ordinary CSR reads remain side-effect free.
+        var snapshot: [REQUEST_WORDS + 1]u32 = undefined;
+        try self.device.readRegsPop(
+            sd.REG_REQ_SNAPSHOT_COUNT,
+            sd.REG_REQ_POP,
+            &snapshot,
+        );
+        const pending = snapshot[0];
         self.stats.polls += 1;
         if (pending == 0) return 0;
+
+        var words = [REQUEST_WORDS]u32{ snapshot[1], snapshot[2] };
 
         const take = @min(pending, self.options.max_requests_per_poll);
         var taken: u32 = 0;
         while (taken < take) : (taken += 1) {
-            // Two reads at two addresses, and not a stream of two reads at
-            // one. NO read of the map has a side effect, so the record
-            // stays at the head of the FIFO until the write below takes it
-            // away, and nothing between the three accesses can put the pair
-            // out of step. The extra round trip costs microseconds against
-            // the 42 ms read timeout of the card.
-            const words: [REQUEST_WORDS]u32 = .{
-                try self.device.regRead(sd.REG_REQ),
-                try self.device.regRead(sd.REG_REQ_HI),
-            };
-            try self.device.regWrite(sd.REG_REQ_POP, sd.REQ_POP_BIT);
-            try self.serveRequest(decodeRequest(words));
+            _ = try self.serveRequest(decodeRequest(words));
             // The read ahead runs after EVERY record and not once after
             // the batch. Boot is almost all CMD18, the card posts one
             // record per block of a stream, and a batch is therefore one
@@ -488,6 +561,16 @@ pub const Server = struct {
             // `pending` is the count this pass READ, so the records still
             // known to be waiting cost no round trip of their own.
             try self.runReadAhead(pending - taken - 1);
+            if (taken + 1 < take) {
+                // A backend may report more than one record. Read and pop
+                // the next complete snapshot so a larger FIFO stays ordered.
+                try self.device.readRegsPop(
+                    sd.REG_REQ_SNAPSHOT_COUNT,
+                    sd.REG_REQ_POP,
+                    &snapshot,
+                );
+                words = .{ snapshot[1], snapshot[2] };
+            }
         }
         return taken;
     }
@@ -501,34 +584,55 @@ pub const Server = struct {
         try self.runReadAhead(0);
     }
 
-    fn serveRequest(self: *Server, request: Request) !void {
+    fn serveRequest(self: *Server, request: Request) !bool {
         self.stats.requests += 1;
-        const op = std.enums.fromInt(RequestOp, request.op) orelse
-            return self.refuse("unknown opcode 0x{X:0>2}", .{request.op});
-        switch (op) {
-            .read_blocks => try self.serveRead(request),
-            .write_blocks, .write_discard => try self.serveWrite(request, op),
+        if (self.card_epoch) |epoch| {
+            if (epoch != request.epoch) {
+                self.cache.clear();
+                self.stats.model_resets += 1;
+                self.last_read_end = NO_BLOCK;
+                self.sequential_reads = 0;
+                self.ahead_owed = false;
+            }
         }
+        self.card_epoch = request.epoch;
+        const op = std.enums.fromInt(RequestOp, request.op) orelse {
+            try self.refuse("unknown opcode 0x{X:0>2}", .{request.op});
+            return false;
+        };
+        return switch (op) {
+            .read_blocks => try self.serveRead(request),
+            .write_blocks, .write_discard => blk: {
+                try self.serveWrite(request, op);
+                break :blk false;
+            },
+        };
     }
 
-    fn serveRead(self: *Server, request: Request) !void {
-        if (request.blocks == 0)
-            return self.refuse("read of 0 blocks at {d}", .{request.lba});
-        if (request.blocks > self.options.max_blocks_per_request)
-            return self.refuse("read of {d} blocks is above the limit of {d}", .{
+    fn serveRead(self: *Server, request: Request) !bool {
+        if (request.blocks == 0) {
+            try self.refuse("read of 0 blocks at {d}", .{request.lba});
+            return false;
+        }
+        if (request.blocks > self.options.max_blocks_per_request) {
+            try self.refuse("read of {d} blocks is above the limit of {d}", .{
                 request.blocks,
                 self.options.max_blocks_per_request,
             });
+            return false;
+        }
 
         // The end is computed in u64, because lba + blocks passes the top of
         // u32 for a read of the last blocks of a full size card.
         const end = @as(u64, request.lba) + request.blocks;
-        if (end > self.image.blocks)
-            return self.refuse("read of {d} blocks at {d} ends past block {d}", .{
+        if (end > self.image.blocks) {
+            try self.refuse("read of {d} blocks at {d} ends past block {d}", .{
                 request.blocks,
                 request.lba,
                 self.image.blocks,
             });
+            return false;
+        }
 
         // The card asked for a block the model says it HOLDS. The card
         // does not evict a line by itself, so the store went away whole,
@@ -536,9 +640,20 @@ pub const Server = struct {
         // side, so this record is the only news of it. The model is
         // cleared rather than left to lie: a model that claims blocks the
         // card lost skips the fills that would put them back.
+        if (self.cache.isPending(request.lba)) {
+            // The host reached a speculative block before its fill became
+            // a cache hit. That fill is already in the ordered data
+            // channel and its address matches this wait, so a duplicate
+            // demand block would only consume bandwidth and arrive late.
+            self.cache.commit(request.lba);
+            self.scheduleReadAhead(request.lba, end);
+            return false;
+        }
         if (self.cache.holds(request.lba)) {
             self.cache.clear();
             self.stats.model_resets += 1;
+            self.last_read_end = NO_BLOCK;
+            self.sequential_reads = 0;
         }
 
         var block: [sd.BLOCK_SIZE]u8 = undefined;
@@ -553,6 +668,26 @@ pub const Server = struct {
 
         // The read ahead starts after the last block of the record and
         // runs once the whole batch of records is served.
+        self.scheduleReadAhead(request.lba, end);
+        return true;
+    }
+
+    /// Opens a read-ahead window only after two requests prove a sequential
+    /// walk. Filesystem metadata is often scattered, and filling after each
+    /// isolated access spends the FIFO on blocks the host will not ask for.
+    fn scheduleReadAhead(self: *Server, lba: u64, end: u64) void {
+        const sequential = self.last_read_end == lba;
+        self.last_read_end = end;
+        if (!sequential) {
+            self.sequential_reads = 1;
+            self.ahead_owed = false;
+            return;
+        }
+        self.sequential_reads +|= 1;
+        if (self.sequential_reads < READ_AHEAD_SEQUENCE) {
+            self.ahead_owed = false;
+            return;
+        }
         self.ahead_from = end;
         self.ahead_end = @min(end + self.options.read_ahead, self.image.blocks);
         self.ahead_owed = true;
@@ -595,36 +730,37 @@ pub const Server = struct {
             return;
         }
 
-        var block: [sd.BLOCK_SIZE]u8 = undefined;
+        if (!try self.spaceForFill()) {
+            self.stats.ahead_deferred_space += 1;
+            return;
+        }
+
+        var lbas: [READ_AHEAD_BURST_BLOCKS]u64 = undefined;
+        var count: usize = 0;
         var lba = from;
-        while (lba < end) : (lba += 1) {
+        while (lba < end and count < lbas.len) : (lba += 1) {
             if (self.cache.holds(lba)) {
                 self.stats.fills_skipped += 1;
                 self.ahead_from = lba + 1;
                 continue;
             }
-            // A fill NEVER waits. The card drains the data channel on the
-            // SD CLOCK, which the host owns and can stop, so a read ahead
-            // that waited for room could burn the whole poll limit and
-            // then fail a serve loop that had nothing wrong with it. A
-            // fill is speculative: no room means no fill.
-            if (!try self.spaceForFill()) {
-                self.stats.ahead_deferred_space += 1;
+            const reserved_words: u32 = @intCast((count + 1) * BLOCK_WORDS);
+            if (reserved_words > self.credit_words) break;
+            lbas[count] = lba;
+            count += 1;
+            self.ahead_from = lba + 1;
+        }
+        if (count == 0) {
+            if (self.ahead_from >= end) {
+                self.ahead_owed = false;
                 return;
             }
-            try self.image.readBlock(lba, &block);
-            try self.pushFill(&block, lba);
-            self.ahead_from = lba + 1;
-
-            // Send at most one speculative block per request poll. A new
-            // demand can arrive while USB carries this block, so the count
-            // that allowed the fill is stale after the transfer. Returning
-            // makes the main loop read REQ_COUNT again before it sends the
-            // next fill. The window stays open until every block in it was
-            // sent or skipped.
-            if (self.ahead_from >= end) self.ahead_owed = false;
+            self.stats.ahead_deferred_space += 1;
             return;
         }
+        try self.pushFillBatch(lbas[0..count]);
+        if (self.ahead_from >= end) self.ahead_owed = false;
+        if (self.ahead_owed) return;
         // One request opens exactly one bounded window. Cache hits and direct
         // fills consume that window without records; the first miss after it
         // opens the next one. Leaving this set here turns read ahead into an
@@ -753,11 +889,9 @@ pub const Server = struct {
 
     /// Takes one block off the write data channel into `buf`.
     ///
-    /// Every word costs TWO accesses: a read of DATA_OUT, which has no
-    /// side effect, and a write of DATA_OUT_POP_BIT to DATA_OUT_POP, which
-    /// takes the word away. That is the discipline the request FIFO
-    /// already uses, and it is why a bulk read of the map beside a `serve`
-    /// loop cannot take data away from the loop.
+    /// One explicit read-and-pop stream takes the full block. The transport
+    /// reads DATA_OUT and writes DATA_OUT_POP for every word inside the
+    /// device, so an ordinary register read still has no side effect.
     ///
     /// Byte 0 of the block is bits 7 to 0 of the FIRST word, which is the
     /// little endian order that DATA_IN and every other value on this wire
@@ -769,9 +903,9 @@ pub const Server = struct {
     /// written over a block of the image.
     fn pullBlock(self: *Server, buf: *[sd.BLOCK_SIZE]u8) !void {
         try self.awaitBlock(BLOCK_WORDS);
-        for (0..BLOCK_WORDS) |i| {
-            const word = try self.device.regRead(sd.REG_DATA_OUT);
-            try self.device.regWrite(sd.REG_DATA_OUT_POP, sd.DATA_OUT_POP_BIT);
+        var words: [BLOCK_WORDS]u32 = undefined;
+        try self.device.readStream(sd.REG_DATA_OUT, &words);
+        for (words, 0..) |word, i| {
             std.mem.writeInt(u32, buf[i * 4 ..][0..4], word, .little);
         }
     }
@@ -814,20 +948,25 @@ pub const Server = struct {
     /// matches the little endian byte order of every other value on this
     /// wire.
     ///
-    /// The tag goes out FIRST, in one register write. The device reads it
-    /// with the block and throws the block away when the tag names a
-    /// request that it already gave up on. One extra round trip of about
-    /// 1 ms per block is nothing against the 42 ms the device waits, and
-    /// without it a block that this code sends late is sent to the host as
-    /// the answer to another read.
-    fn pushBlock(self: *Server, block: *const [sd.BLOCK_SIZE]u8, seq: u8) !void {
+    /// The tag goes out FIRST. The device reads it with the block and throws
+    /// the block away when the tag names a request that it already gave up
+    /// on.
+    fn pushBlock(
+        self: *Server,
+        block: *const [sd.BLOCK_SIZE]u8,
+        seq: u8,
+    ) !void {
         var words: [BLOCK_WORDS]u32 = undefined;
         for (&words, 0..) |*word, i| {
             word.* = std.mem.readInt(u32, block[i * 4 ..][0..4], .little);
         }
         try self.awaitSpace(BLOCK_WORDS);
-        try self.device.regWrite(sd.REG_DATA_TAG, seq);
-        try self.device.writeStream(sd.REG_DATA_IN, &words);
+        try self.device.writeRegsStreamRegs(
+            &.{.{ sd.REG_DATA_TAG, seq }},
+            sd.REG_DATA_IN,
+            &words,
+            &.{},
+        );
         self.credit_words -= BLOCK_WORDS;
         self.stats.blocks += 1;
     }
@@ -846,26 +985,41 @@ pub const Server = struct {
     ///
     /// The CALLER must have found room with `spaceForFill` first. A fill
     /// never waits for room, so the wait is not here.
-    fn pushFill(self: *Server, block: *const [sd.BLOCK_SIZE]u8, lba: u64) !void {
-        const addr = std.math.cast(u32, lba) orelse return Error.BlockOutOfRange;
-        std.debug.assert(self.credit_words >= BLOCK_WORDS);
-        var words: [BLOCK_WORDS]u32 = undefined;
-        for (&words, 0..) |*word, i| {
-            word.* = std.mem.readInt(u32, block[i * 4 ..][0..4], .little);
+    fn pushFillBatch(self: *Server, lbas: []const u64) !void {
+        std.debug.assert(lbas.len > 0);
+        std.debug.assert(lbas.len <= READ_AHEAD_BURST_BLOCKS);
+        const batch_words: u32 = @intCast(lbas.len * BLOCK_WORDS);
+        std.debug.assert(self.credit_words >= batch_words);
+
+        var words: [READ_AHEAD_BURST_BLOCKS * BLOCK_WORDS]u32 = undefined;
+        var setup: [READ_AHEAD_BURST_BLOCKS][2][2]u32 = undefined;
+        var groups: [READ_AHEAD_BURST_BLOCKS]WriteStreamGroup = undefined;
+        var block: [sd.BLOCK_SIZE]u8 = undefined;
+        for (lbas, 0..) |lba, i| {
+            const addr = std.math.cast(u32, lba) orelse return Error.BlockOutOfRange;
+            try self.image.readBlock(lba, &block);
+            const block_words = words[i * BLOCK_WORDS ..][0..BLOCK_WORDS];
+            for (block_words, 0..) |*word, word_index| {
+                word.* = std.mem.readInt(
+                    u32,
+                    block[word_index * 4 ..][0..4],
+                    .little,
+                );
+            }
+            setup[i] = .{
+                .{ sd.REG_DATA_FILL_LBA, addr },
+                .{ sd.REG_DATA_TAG, sd.DATA_TAG_FILL },
+            };
+            groups[i] = .{
+                .before = &setup[i],
+                .addr = sd.REG_DATA_IN,
+                .values = block_words,
+            };
         }
-        // The address and the tag go out in ONE frame. The backend keeps
-        // the order of the pairs, so the address still lands before the
-        // tag that reserves it, and a fill costs two round trips instead of
-        // three. A fill that costs more than the block it saves is not
-        // worth pushing.
-        try self.device.writeRegs(&.{
-            .{ sd.REG_DATA_FILL_LBA, addr },
-            .{ sd.REG_DATA_TAG, sd.DATA_TAG_FILL },
-        });
-        try self.device.writeStream(sd.REG_DATA_IN, &words);
-        self.credit_words -= BLOCK_WORDS;
-        self.stats.fills += 1;
-        self.cache.insert(lba);
+        try self.device.writeStreamGroups(groups[0..lbas.len]);
+        self.credit_words -= batch_words;
+        self.stats.fills += @intCast(lbas.len);
+        for (lbas) |lba| self.cache.insertPending(lba);
     }
 
     /// Waits until DATA_IN holds `words` free words.
@@ -1034,7 +1188,7 @@ const FakeDevice = struct {
     fn regRead(self: *FakeDevice, addr: u32) anyerror!u32 {
         self.frames += 1;
         return switch (addr) {
-            sd.REG_REQ_COUNT => blk: {
+            sd.REG_REQ_COUNT, sd.REG_REQ_SNAPSHOT_COUNT => blk: {
                 self.req_count_reads += 1;
                 if (self.req_count_reads > 1) break :blk self.req_count_later;
                 break :blk self.req_count;
@@ -1084,7 +1238,49 @@ const FakeDevice = struct {
     }
 
     fn readStream(self: *FakeDevice, addr: u32, words: []u32) anyerror!void {
-        for (words) |*word| word.* = try self.regRead(addr);
+        self.frames += 1;
+        if (addr != sd.REG_DATA_OUT) return error.UnexpectedStreamAddress;
+        for (words) |*word| {
+            word.* = try self.regRead(addr);
+            try self.regWrite(sd.REG_DATA_OUT_POP, sd.DATA_OUT_POP_BIT);
+        }
+        // The transport coalesces every read and pop into one command.
+        self.frames -= words.len * 2;
+    }
+
+    fn readRegs(self: *FakeDevice, addr: u32, words: []u32) anyerror!void {
+        self.frames += 1;
+        if (addr != sd.REG_REQ_SNAPSHOT or words.len != REQUEST_WORDS) {
+            return error.UnexpectedReadRegs;
+        }
+        words[0] = if (self.req_read < self.req.len) self.req[self.req_read] else 0;
+        words[1] = if (self.req_read + 1 < self.req.len) self.req[self.req_read + 1] else 0;
+    }
+
+    fn readRegsPop(
+        self: *FakeDevice,
+        addr: u32,
+        pop_addr: u32,
+        words: []u32,
+    ) anyerror!void {
+        self.frames += 1;
+        if (addr != sd.REG_REQ_SNAPSHOT_COUNT or
+            pop_addr != sd.REG_REQ_POP or
+            words.len != REQUEST_WORDS + 1)
+        {
+            return error.UnexpectedReadRegsPop;
+        }
+        self.req_count_reads += 1;
+        const count = if (self.req_count_reads > 1)
+            self.req_count_later
+        else
+            self.req_count;
+        words[0] = count;
+        words[1] = if (self.req_read < self.req.len) self.req[self.req_read] else 0;
+        words[2] = if (self.req_read + 1 < self.req.len) self.req[self.req_read + 1] else 0;
+        if (self.req_read + 1 < self.req.len) {
+            self.req_read += REQUEST_WORDS;
+        }
     }
 
     fn writeStream(self: *FakeDevice, addr: u32, values: []const u32) anyerror!void {
@@ -1109,6 +1305,34 @@ const FakeDevice = struct {
         self.pending_fill = null;
         @memcpy(self.pushed[self.pushed_len..][0..values.len], values);
         self.pushed_len += values.len;
+    }
+
+    fn writeRegsStreamRegs(
+        self: *FakeDevice,
+        before: []const [2]u32,
+        addr: u32,
+        values: []const u32,
+        after: []const [2]u32,
+    ) anyerror!void {
+        for (before) |pair| try self.regWrite(pair[0], pair[1]);
+        try self.writeStream(addr, values);
+        for (after) |pair| try self.regWrite(pair[0], pair[1]);
+        self.frames -= before.len + after.len;
+    }
+
+    fn writeStreamGroups(
+        self: *FakeDevice,
+        groups: []const WriteStreamGroup,
+    ) anyerror!void {
+        for (groups) |group| {
+            try self.writeRegsStreamRegs(
+                group.before,
+                group.addr,
+                group.values,
+                group.after,
+            );
+        }
+        if (groups.len > 0) self.frames -= groups.len - 1;
     }
 
     fn device(self: *FakeDevice) Device {
@@ -1144,13 +1368,34 @@ const FakeDevice = struct {
             }
         }.f,
         .read_regs = struct {
-            fn f(_: *anyopaque, _: u32, _: []u32) anyerror!void {
-                return error.UnexpectedReadRegs;
+            fn f(p: *anyopaque, a: u32, words: []u32) anyerror!void {
+                return cast(p).readRegs(a, words);
+            }
+        }.f,
+        .read_regs_pop = struct {
+            fn f(p: *anyopaque, a: u32, pop: u32, words: []u32) anyerror!void {
+                return cast(p).readRegsPop(a, pop, words);
             }
         }.f,
         .write_stream = struct {
             fn f(p: *anyopaque, a: u32, v: []const u32) anyerror!void {
                 return cast(p).writeStream(a, v);
+            }
+        }.f,
+        .write_regs_stream_regs = struct {
+            fn f(
+                p: *anyopaque,
+                before: []const [2]u32,
+                a: u32,
+                v: []const u32,
+                after: []const [2]u32,
+            ) anyerror!void {
+                return cast(p).writeRegsStreamRegs(before, a, v, after);
+            }
+        }.f,
+        .write_stream_groups = struct {
+            fn f(p: *anyopaque, groups: []const WriteStreamGroup) anyerror!void {
+                return cast(p).writeStreamGroups(groups);
             }
         }.f,
         .read_stream = struct {
@@ -1253,9 +1498,10 @@ test "a request record packs the opcode, the tag, the block count and the LBA" {
         .blocks = 8,
         .lba = 0xDEADBEEF,
         .seq = 0x5A,
+        .epoch = 0xC,
     };
     const words = request.words();
-    try std.testing.expectEqual(@as(u32, 0x0008_5A01), words[0]);
+    try std.testing.expectEqual(@as(u32, 0x0008_5AC1), words[0]);
     try std.testing.expectEqual(@as(u32, 0xDEAD_BEEF), words[1]);
 
     const back = decodeRequest(words);
@@ -1263,6 +1509,7 @@ test "a request record packs the opcode, the tag, the block count and the LBA" {
     try std.testing.expectEqual(request.blocks, back.blocks);
     try std.testing.expectEqual(request.lba, back.lba);
     try std.testing.expectEqual(request.seq, back.seq);
+    try std.testing.expectEqual(request.epoch, back.epoch);
 }
 
 test "decodeRequest reads the tag byte as neither the opcode nor the count" {
@@ -1417,7 +1664,7 @@ test "an unknown opcode is refused and serves no bytes" {
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     try std.testing.expectEqual(@as(usize, 0), fake.pushed_len);
     try std.testing.expectEqual(@as(u64, 1), server.stats.refused);
-    try std.testing.expect(std.mem.indexOf(u8, log.buffered(), "unknown opcode 0x7E") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log.buffered(), "unknown opcode 0x0E") != null);
 }
 
 test "a request for 0 blocks is refused" {
@@ -2272,6 +2519,8 @@ test "a read ahead fills the blocks after the record and tags them as fills" {
         .options = .{ .read_ahead = 2 },
     };
     try server.learnCache();
+    server.last_read_end = request.lba;
+    server.sequential_reads = READ_AHEAD_SEQUENCE - 1;
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     try server.continueReadAhead();
@@ -2327,6 +2576,8 @@ test "a read ahead pushes nothing for a block the card already holds" {
     try server.learnCache();
     // The card is told to hold block 11 already.
     server.cache.insert(11);
+    server.last_read_end = request.lba;
+    server.sequential_reads = READ_AHEAD_SEQUENCE - 1;
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     try server.continueReadAhead();
@@ -2363,6 +2614,8 @@ test "a read ahead waits while the card still has a record" {
         .options = .{ .read_ahead = 2, .max_requests_per_poll = 1 },
     };
     try server.learnCache();
+    server.last_read_end = request.lba;
+    server.sequential_reads = READ_AHEAD_SEQUENCE - 1;
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     try std.testing.expectEqual(@as(usize, 1), fake.tags_len);
@@ -2464,10 +2717,44 @@ test "a record for a block the model claims clears the whole model" {
     try server.continueReadAhead();
     try std.testing.expectEqual(@as(u64, 1), server.stats.model_resets);
     // The clear happened before the record was served, so block 50 is
-    // forgotten and block 11 is filled again rather than skipped.
+    // forgotten. It also clears the sequence predictor, so no speculative
+    // block goes out until another request proves a sequential walk.
     try std.testing.expect(!server.cache.holds(50));
-    try std.testing.expectEqual(@as(u64, 2), server.stats.fills);
+    try std.testing.expectEqual(@as(u64, 0), server.stats.fills);
     try std.testing.expectEqual(@as(u64, 0), server.stats.fills_skipped);
+}
+
+test "a new card generation clears pending fills before serving a request" {
+    // CMD0 invalidates the FPGA cache. A pending host-model entry from the
+    // prior generation must not suppress the first request after that CMD0.
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 64);
+    const image = try openTestImage(tmp.dir, "card.img", 64, false);
+    defer image.file.close(std.testing.io);
+
+    const request: Request = .{
+        .op = 0x01,
+        .blocks = 1,
+        .lba = 10,
+        .seq = 4,
+        .epoch = 2,
+    };
+    var fake: FakeDevice = .{};
+    var server: Server = .{
+        .device = fake.device(),
+        .image = image,
+        .card_epoch = 1,
+    };
+    try server.learnCache();
+    server.cache.insertPending(10);
+    server.cache.insertPending(11);
+
+    try std.testing.expect(try server.serveRequest(request));
+    try std.testing.expectEqual(@as(usize, 1), fake.tags_len);
+    try std.testing.expectEqual(@as(u8, request.seq), fake.tags[0]);
+    try std.testing.expectEqual(@as(u64, 1), server.stats.model_resets);
+    try std.testing.expect(!server.cache.holds(11));
 }
 
 test "a read ahead pushes nothing when the data channel has no room" {
@@ -2495,6 +2782,8 @@ test "a read ahead pushes nothing when the data channel has no room" {
         .options = .{ .read_ahead = 2 },
     };
     try server.learnCache();
+    server.last_read_end = request.lba;
+    server.sequential_reads = READ_AHEAD_SEQUENCE - 1;
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     try std.testing.expectEqual(@as(usize, 1), fake.tags_len);
@@ -2545,13 +2834,17 @@ test "read ahead runs between the records of a stream and not only after them" {
         .options = .{ .read_ahead = 2 },
     };
     try server.learnCache();
+    server.last_read_end = stream[0].lba;
+    server.sequential_reads = READ_AHEAD_SEQUENCE - 2;
 
     for (stream) |_| {
         try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     }
 
-    // Every record was answered and the read ahead ran INSIDE the stream.
-    try std.testing.expectEqual(@as(u64, stream.len), server.stats.blocks);
+    // The first two records prove the sequential walk. Each later record
+    // finds its matching fill already in flight and does not send a
+    // duplicate block behind it.
+    try std.testing.expectEqual(@as(u64, 2), server.stats.blocks);
     try std.testing.expect(server.stats.fills > 0);
     try std.testing.expectEqual(@as(u64, 0), server.stats.ahead_deferred_busy);
     try std.testing.expectEqual(@as(u64, 0), server.stats.refused);
@@ -2580,6 +2873,8 @@ test "a fill carries the fill tag and its own address, never a record tag" {
         .options = .{ .read_ahead = 3 },
     };
     try server.learnCache();
+    server.last_read_end = request.lba;
+    server.sequential_reads = READ_AHEAD_SEQUENCE - 1;
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     try server.continueReadAhead();
     try server.continueReadAhead();
@@ -2608,16 +2903,15 @@ test "a fill carries the fill tag and its own address, never a record tag" {
     }
 }
 
-test "a record costs a fixed small number of USB frames" {
+test "a record combines its tag and block in one USB frame" {
     // The number that decides how fast the link runs. One frame is one
     // transfer on the wire and costs of the order of 100 us at full speed,
     // whatever it carries.
     //
-    // A record costs SIX: REQ_COUNT, REQ, REQ_HI, REQ_POP, DATA_TAG and
-    // the block itself. A fill costs TWO: the address and the tag in one
-    // write of pairs, and the block. Nothing here polls DATA_IN_COUNT,
-    // because the channel holds four blocks and the credit of one read
-    // covers them.
+    // A record costs TWO after credit is known: one request snapshot-and-pop,
+    // then one transaction with the tag and block.
+    // Nothing here polls DATA_IN_COUNT after the first credit read, because
+    // the channel holds four blocks and that credit covers them.
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try writePatternImage(tmp.dir, "card.img", 64);
@@ -2640,21 +2934,20 @@ test "a record costs a fixed small number of USB frames" {
     fake.frames = 0;
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     // One read of DATA_IN_COUNT the first time the credit is spent.
-    try std.testing.expectEqual(@as(usize, 7), fake.frames);
+    try std.testing.expectEqual(@as(usize, 3), fake.frames);
 
     // The credit of that one read covers the blocks that follow, so the
-    // second record costs six and no read of the count at all.
+    // second record costs two and no read of the input count at all.
     fake.req_read = 0;
     fake.frames = 0;
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
-    try std.testing.expectEqual(@as(usize, 6), fake.frames);
+    try std.testing.expectEqual(@as(usize, 2), fake.frames);
 }
 
-test "a read ahead block costs two USB frames and no poll of its own" {
-    // A fill is the address and the tag in ONE write of pairs, and the
-    // block. Two frames, against the SIX that a record costs, so a read
-    // ahead of three blocks turns 6 frames for one block into 13 frames
-    // for four: three frames a block instead of six.
+test "a read ahead window uses one grouped USB frame" {
+    // The three fills share one transaction. With the two transactions of
+    // the demand record and one credit refresh, four blocks cost four USB
+    // transactions in steady state.
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try writePatternImage(tmp.dir, "card.img", 128);
@@ -2684,6 +2977,8 @@ test "a read ahead block costs two USB frames and no poll of its own" {
         .options = .{ .read_ahead = 3 },
     };
     try server.learnCache();
+    server.last_read_end = records[0].lba;
+    server.sequential_reads = READ_AHEAD_SEQUENCE - 1;
     // The first pass spends the one read of DATA_IN_COUNT, so what the
     // second costs is the steady cost and not the cost of starting.
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
@@ -2691,13 +2986,14 @@ test "a read ahead block costs two USB frames and no poll of its own" {
     try server.continueReadAhead();
 
     fake.frames = 0;
+    server.last_read_end = records[1].lba;
+    server.sequential_reads = READ_AHEAD_SEQUENCE - 1;
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     try server.continueReadAhead();
     try server.continueReadAhead();
-    // Six for the record, two for each of the three fills, and ONE read
-    // of DATA_IN_COUNT, because the four blocks of the pass before spent
-    // the whole credit of the channel. Thirteen frames for four blocks.
+    // Two for the record, one grouped fill, and one DATA_IN_COUNT read,
+    // because the pass before spent the whole credit of the channel.
     try std.testing.expectEqual(@as(u64, 6), server.stats.fills);
     try std.testing.expectEqual(@as(u64, 0), server.stats.model_resets);
-    try std.testing.expectEqual(@as(usize, 13), fake.frames);
+    try std.testing.expectEqual(@as(usize, 4), fake.frames);
 }

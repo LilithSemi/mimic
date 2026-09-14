@@ -121,6 +121,9 @@ class _Bench {
   /// of the register that feeds this port in the real design.
   final Logic csd = Logic(name: 'csd', width: sdResponseRegBits);
 
+  /// The number of blocks that accepts every ordinary test address.
+  final Logic numBlocks = Logic(name: 'num_blocks', width: sdCommandArgBits);
+
   /// The block read path, as the card sees it.
   ///
   /// The card is enabled and the read path can take a read, so a CMD17
@@ -179,6 +182,9 @@ class _Bench {
 
   /// True while the card asks the write path to start a block write.
   bool get writeStart => dut.output('write_start').value == LogicValue.one;
+
+  /// True while the card asks the read path to start a block read.
+  bool get readStart => dut.output('read_start').value == LogicValue.one;
 
   /// The block address that the card gave the write path.
   int get writeLba => dut.output('write_lba').value.toInt();
@@ -311,6 +317,7 @@ Future<_Bench> _setUp(
   dut.input('cmd_crc_ok').srcConnection! <= bench.cmdCrcOk;
   dut.input('resp_busy').srcConnection! <= bench.respBusy;
   dut.input('csd').srcConnection! <= bench.csd;
+  dut.input('num_blocks').srcConnection! <= bench.numBlocks;
   // The block read path. A bench that does not drive a read holds a
   // card that CAN take one, so a CMD17 in tran is answered and not
   // refused. Every input needs a driver, because an input that nothing
@@ -335,6 +342,7 @@ Future<_Bench> _setUp(
   bench.cmdValid.inject(0);
   bench.cmdCrcOk.inject(0);
   bench.csd.inject(sdCardCsdValue);
+  bench.numBlocks.inject(sdCardCapacityBlocks);
   bench.readReady.inject(1);
   bench.regReady.inject(1);
   bench.cardEnable.inject(1);
@@ -1366,6 +1374,39 @@ void main() {
     await Simulator.endSimulation();
   });
 
+  test(
+    'CMD17 at the capacity answers OUT_OF_RANGE and starts no read',
+    () async {
+      final bench = await _setUp(MimicSdCardFsm());
+      final mon = _RespMonitor(bench);
+      await _initToTran(bench);
+      final before = mon.starts.length;
+      const blocks = 32;
+      bench.numBlocks.inject(blocks);
+
+      await bench.sendCommand(sdCmdReadSingleBlock, blocks);
+      await bench.tick();
+      expect(
+        bench.readStart,
+        isFalse,
+        reason: 'a block at NUM_BLOCKS is outside the card',
+      );
+      await bench.idle(8);
+      await mon.stop();
+
+      expect(mon.starts, hasLength(before + 1));
+      expect(mon.starts.last.index, sdCmdReadSingleBlock);
+      expect(
+        (mon.starts.last.status >> sdStatusOutOfRangeBit) & 1,
+        1,
+        reason: 'the R1 must name the address fault',
+      );
+      expect(_cardError(mon.starts.last.status), 0);
+      expect(bench.cardState, sdCardStateTran);
+      await Simulator.endSimulation();
+    },
+  );
+
   test('CMD7 for another card answers nothing and deselects', () async {
     // A host selects one card of many with CMD7, and every other card
     // must hold the wire free for that one answer. A card that answered
@@ -1608,6 +1649,39 @@ void main() {
     );
     await Simulator.endSimulation();
   });
+
+  test(
+    'CMD24 at the capacity answers OUT_OF_RANGE and starts no write',
+    () async {
+      final bench = await _setUp(MimicSdCardFsm());
+      final mon = _RespMonitor(bench);
+      await _initToTran(bench);
+      final before = mon.starts.length;
+      const blocks = 32;
+      bench.numBlocks.inject(blocks);
+
+      await bench.sendCommand(sdCmdWriteBlock, blocks);
+      await bench.tick();
+      expect(
+        bench.writeStart,
+        isFalse,
+        reason: 'a block at NUM_BLOCKS is outside the card',
+      );
+      await bench.idle(8);
+      await mon.stop();
+
+      expect(mon.starts, hasLength(before + 1));
+      expect(mon.starts.last.index, sdCmdWriteBlock);
+      expect(
+        (mon.starts.last.status >> sdStatusOutOfRangeBit) & 1,
+        1,
+        reason: 'the R1 must name the address fault',
+      );
+      expect(_cardError(mon.starts.last.status), 0);
+      expect(bench.cardState, sdCardStateTran);
+      await Simulator.endSimulation();
+    },
+  );
 
   test('the card walks tran, rcv, prg and back to tran', () async {
     final bench = await _setUp(MimicSdCardFsm());

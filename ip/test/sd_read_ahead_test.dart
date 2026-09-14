@@ -242,6 +242,63 @@ void main() {
     await Simulator.endSimulation();
   });
 
+  test('a partial next fill satisfies a merged stream request', () async {
+    final b = await setUpSdReadBench();
+    await wbWrite(b, MimicReg.ctrl, MimicCtrl.enable);
+    await walkToTran(b);
+
+    await b.host.idle(sdCommandGapClocks);
+    await b.host.sendCommand(sdCmdReadMultipleBlock, sdTestLba);
+    final response = await b.host.receiveResponse(SdResponseKind.r1);
+    expect(response.timedOut, isFalse, reason: 'CMD18 gave no response.');
+
+    final first = sdTestBlockBytesFor(sdTestLba);
+    final second = sdTestBlockBytesFor(sdTestLba + 1);
+    await answerRecord(b, first, expectLba: sdTestLba);
+
+    // The fill tag arrives first, but the completed-block count must stay
+    // behind until all 128 words arrive. This is the USB timing seen on the
+    // board when the SD host finishes one block during the next USB burst.
+    final secondWords = sdBlockWordsOf(second);
+    await wbWrite(b, MimicReg.dataFillLba, sdTestLba + 1);
+    await wbWrite(b, MimicReg.dataTag, MimicDataTag.fill);
+    for (final word in secondWords.take(16)) {
+      await wbWrite(b, MimicReg.dataIn, word);
+    }
+
+    final gotFirst = await b.host.receiveDataBlock(timeoutClocks: 400);
+    expect(gotFirst.timedOut, isFalse, reason: 'the first block never came.');
+    expect(gotFirst.bytes, first, reason: 'the first block has wrong bytes.');
+    await b.host.idle(8);
+    final merged = await takeRecord(b);
+    expect(
+      merged.lba,
+      sdTestLba + 1,
+      reason: 'the card did not report the miss for the partial fill.',
+    );
+
+    for (final word in secondWords.skip(16)) {
+      await wbWrite(b, MimicReg.dataIn, word);
+    }
+    final gotSecond = await b.host.receiveDataBlock(timeoutClocks: 400);
+    expect(gotSecond.timedOut, isFalse, reason: 'the partial fill never sent.');
+    expect(gotSecond.crcOk, isTrue, reason: 'the partial fill has bad CRC16.');
+    expect(
+      gotSecond.bytes,
+      second,
+      reason: 'the partial fill has wrong bytes.',
+    );
+
+    await b.host.idle(8);
+    final next = await takeRecord(b);
+    expect(
+      next.lba,
+      sdTestLba + 2,
+      reason: 'the next request did not advance past the fill.',
+    );
+    await Simulator.endSimulation();
+  });
+
   test('a fill is never sent as the answer to a request', () async {
     // The rule that read ahead must not break. A block that answers no
     // record carries the tag that names none, and the card takes it off

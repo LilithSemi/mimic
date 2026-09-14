@@ -46,6 +46,13 @@ void main() {
       expect(MimicReg.dbgCacheMiss, equals(0x84));
       expect(MimicReg.dbgCacheFill, equals(0x88));
       expect(MimicReg.cacheLines, equals(0x8C));
+      expect(MimicReg.reqSnapshotCount, equals(0x90));
+      expect(MimicReg.reqSnapshot, equals(0x94));
+      expect(MimicReg.reqSnapshotHi, equals(0x98));
+      expect(MimicReg.dbgReadStart, equals(0x9C));
+      expect(MimicReg.dbgReadDone, equals(0xA0));
+      expect(MimicReg.dbgReadDrop, equals(0xA4));
+      expect(MimicReg.dbgReadAbort, equals(0xA8));
     });
 
     test('the block cache registers sit above the write path', () {
@@ -215,6 +222,16 @@ void main() {
         MimicReg.reqPop,
         MimicReg.dataOutPop,
         MimicReg.writeAck,
+        MimicReg.dataFillLba,
+        ...MimicReg.dbgCache,
+        MimicReg.cacheLines,
+        MimicReg.reqSnapshotCount,
+        MimicReg.reqSnapshot,
+        MimicReg.reqSnapshotHi,
+        MimicReg.dbgReadStart,
+        MimicReg.dbgReadDone,
+        MimicReg.dbgReadDrop,
+        MimicReg.dbgReadAbort,
       ];
       var prev = -4;
       for (final o in offsets) {
@@ -231,11 +248,10 @@ void main() {
       expect(MimicRegValue.id, equals(0x4D494D43));
     });
 
-    test('VERSION packs interface version 1.0.0', () {
-      // major << 16 | minor << 8 | patch = 1 << 16 = 65536.
-      expect(MimicRegValue.version, equals(0x00010000));
-      expect(MimicRegValue.version, equals(65536));
-      expect(MimicRegValue.versionString, equals('1.0.0'));
+    test('VERSION packs interface version 1.1.0', () {
+      expect(MimicRegValue.version, equals(0x00010100));
+      expect(MimicRegValue.version, equals(65792));
+      expect(MimicRegValue.versionString, equals('1.1.0'));
     });
   });
 

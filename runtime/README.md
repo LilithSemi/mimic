@@ -115,10 +115,10 @@ Do not enable the card before the size and channels are ready. The SD host can
 start identification as soon as enable reaches the SD domain.
 
 Each request poll is bounded. The server takes at most 64 records from one
-reported count, and one record can request at most 256 blocks. It reads both
-request words, writes `REQ_POP`, and then validates the record. An invalid
-record must still leave the request channel or all later records stop behind
-it.
+reported count, and one record can request at most 256 blocks. One
+`READ_THEN_POP` transaction reads the count and both request words, then writes
+`REQ_POP` once. It performs the same explicit pop on an invalid record, so all
+later records can continue.
 
 A demand read waits for one complete block of `DATA_IN` credit. The credit is
 conservative and is spent locally before the runtime reads the register
@@ -181,9 +181,17 @@ write timeout, or read-data overflow. See
 ## USB and image permissions
 
 The runtime claims USB interface 0 through `/dev/bus/usb`. Run it with `sudo`
-during bring-up, or install a local udev rule that grants your user access to
-USB device `1209:10c1`. An access failure reports `AccessDenied`. A second
-process on the interface reports `InterfaceBusy`.
+during bring-up, or install the udev rule from the `mimic-rt` package. On
+NixOS, add the package to `services.udev.packages`:
+
+```nix
+services.udev.packages = [ pkgs.mimic-rt ];
+```
+
+The rule grants access to active local users and members of `plugdev`. Reload
+the udev rules and reconnect Mimic after installation. An access failure
+reports `AccessDenied`. A second process on the interface reports
+`InterfaceBusy`.
 
 The process also needs read access to the image. Normal serve mode needs write
 access. `--grow` needs permission to extend the file. Check the image owner and

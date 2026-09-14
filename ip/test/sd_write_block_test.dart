@@ -67,7 +67,7 @@ class _AckPushMonitor {
 /// waiting, so every test of the channel guard starts here.
 ///
 /// It gives back the record that the card posted.
-Future<({int word0, int lba, int seq})> leaveBlockOnChannel(
+Future<({int word0, int lba, int seq, int epoch})> leaveBlockOnChannel(
   SdReadBench b,
 ) async {
   final first = await sendWriteCommand(b, sdTestLba);

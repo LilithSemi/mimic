@@ -92,6 +92,9 @@ Future<({MimicSdCardDevice dut, SdHost host})> _setUp({BigInt? cid}) async {
   dut.input('sd_dat_in').srcConnection! <= datIn;
   dut.input('csd').srcConnection! <= csd;
   dut.input('csd_valid').srcConnection! <= csdValid;
+  dut.input('num_blocks').srcConnection! <=
+      Const(sdCardCapacityBlocks, width: sdCommandArgBits);
+  dut.input('num_blocks_valid').srcConnection! <= Const(1);
   // The block read path is off in the identification walk. Every input
   // needs a driver, because an input that nothing drives holds X.
   dut.input('card_enable').srcConnection! <= Const(0);
@@ -247,6 +250,9 @@ class _CsdBridge extends BridgeModule {
     cdc.input('dst_ready').srcConnection! <= ~cdc.output('dst_valid');
     card.input('csd').srcConnection! <= cdc.output('dst_data');
     card.input('csd_valid').srcConnection! <= cdc.output('dst_valid');
+    card.input('num_blocks').srcConnection! <=
+        Const(sdCardCapacityBlocks, width: sdCommandArgBits);
+    card.input('num_blocks_valid').srcConnection! <= Const(1);
 
     // The block read path is off in this bench. Every input needs a
     // driver, because an input that nothing drives holds X and the X

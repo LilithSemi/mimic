@@ -19,6 +19,12 @@
 //                        resp_ready).
 //   WRITE_STREAM (opcode 0x03): like WRITE, but the address stays fixed
 //                        (a FIFO push).
+//   READ_POP_STREAM (opcode 0x04): the low 16 address bits name a data
+//                        register and the high 16 bits name its explicit pop
+//                        register. Each word is read, popped, and returned.
+//   READ_THEN_POP (opcode 0x05): read consecutive words, then write the
+//                        explicit pop register once before returning the
+//                        final word.
 //
 // The tests run at the COMMAND/byte-stream level through the REAL SoC
 // fabric: buildMimicSoc(tbCmdPorts: true) wires the command engine through
@@ -31,6 +37,7 @@
 import 'package:harbor/harbor.dart';
 import 'package:mimic/mimic.dart';
 import 'package:rohd/rohd.dart';
+import 'package:rohd_bridge/rohd_bridge.dart';
 import 'package:test/test.dart';
 
 // Golden helpers (host-side, independent of the RTL).
@@ -61,6 +68,18 @@ List<int> _writeStreamCmd(int addr, List<int> data) => [
   ..._le32(addr),
   ..._le16(data.length),
   ...data,
+];
+
+List<int> _readPopStreamCmd(int readAddr, int popAddr, int len) => [
+  MimicUsbOpcode.readPopStream,
+  ..._le32(readAddr | (popAddr << 16)),
+  ..._le16(len),
+];
+
+List<int> _readThenPopCmd(int readAddr, int popAddr, int len) => [
+  MimicUsbOpcode.readThenPop,
+  ..._le32(readAddr | (popAddr << 16)),
+  ..._le16(len),
 ];
 
 int _word(List<int> b) => b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24);
@@ -134,7 +153,7 @@ Future<void> _resetSoc(HarborSoC soc, Logic clk) async {
 
 // Feed one command's bytes into the bulk-OUT stream, honoring cmd_ready.
 Future<void> _feedCmd(
-  HarborSoC soc,
+  BridgeModule soc,
   Logic clk,
   Logic cmdData,
   Logic cmdValid,
@@ -167,7 +186,7 @@ Future<void> _feedCmd(
 // would miss/duplicate bytes. Pulsing per byte is the correct contract (the
 // same one the harbor EP1-IN assembler uses).
 Future<List<int>> _collectResp(
-  HarborSoC soc,
+  BridgeModule soc,
   Logic clk,
   Logic respReady,
   int n,
@@ -199,11 +218,115 @@ Future<List<int>> _collectResp(
 }
 
 // Wait for the command engine to go idle (busy low).
-Future<void> _waitIdle(HarborSoC soc, Logic clk) async {
+Future<void> _waitIdle(BridgeModule soc, Logic clk) async {
   var guard = 0;
   while (soc.output('busy').value.toInt() == 1 && guard < 200000) {
     guard++;
     await clk.nextPosedge;
+  }
+}
+
+/// A two-word FIFO behind the USB command engine. DATA reads the current
+/// word with no side effect. A write of 1 to POP advances the FIFO.
+class _ReadPopSlave extends BridgeModule {
+  static const dataAddr = 0x28;
+  static const popAddr = 0x74;
+  static const snapshotAddr = 0x90;
+  static const snapshotPopAddr = 0x70;
+
+  _ReadPopSlave(WishboneConfig config)
+    : super('ReadPopSlave', name: 'read_pop_slave') {
+    createPort('clk', PortDirection.input);
+    createPort('reset', PortDirection.input);
+    final ref = addInterface(
+      WishboneInterface(config),
+      name: 'bus',
+      role: PairRole.consumer,
+    );
+    final bus = ref.internalInterface!;
+    final head = Logic(name: 'head', width: 2);
+    final active = bus.cyc & bus.stb;
+    final pop =
+        active &
+        bus.we &
+        (bus.adr.eq(Const(popAddr, width: config.addressWidth)) |
+            bus.adr.eq(Const(snapshotPopAddr, width: config.addressWidth))) &
+        bus.datMosi[0];
+    final fifoData = mux(
+      head.eq(Const(0, width: head.width)),
+      Const(0x11223344, width: config.dataWidth),
+      Const(0x55667788, width: config.dataWidth),
+    );
+    final data = mux(
+      bus.adr.eq(Const(snapshotAddr, width: config.addressWidth)),
+      Const(1, width: config.dataWidth),
+      mux(
+        bus.adr.eq(Const(snapshotAddr + 4, width: config.addressWidth)),
+        Const(0xA1B2C3D4, width: config.dataWidth),
+        mux(
+          bus.adr.eq(Const(snapshotAddr + 8, width: config.addressWidth)),
+          Const(0x10203040, width: config.dataWidth),
+          fifoData,
+        ),
+      ),
+    );
+
+    bus.ack <= active;
+    bus.datMiso <= data;
+    addOutput('pop_count', width: head.width) <= head;
+
+    Sequential(input('clk'), [
+      If(
+        input('reset'),
+        then: [head < Const(0, width: head.width)],
+        orElse: [
+          If(pop, then: [head < head + 1]),
+        ],
+      ),
+    ]);
+  }
+}
+
+/// Connects the command engine to [_ReadPopSlave] and exposes its byte
+/// streams to this test.
+class _ReadPopBench extends BridgeModule {
+  late final Logic clk;
+
+  _ReadPopBench() : super('ReadPopBench', name: 'read_pop_bench') {
+    const config = MimicUsbDeviceConfig();
+    final engine = MimicUsbCmdEngine(config: config);
+    final slave = _ReadPopSlave(
+      WishboneConfig(
+        addressWidth: config.busAddressWidth,
+        dataWidth: config.busDataWidth,
+      ),
+    );
+    addSubModule(engine);
+    addSubModule(slave);
+
+    clk = SimpleClockGenerator(10).clk;
+    createPort('clk', PortDirection.input);
+    createPort('reset', PortDirection.input);
+    createPort('cmd_data', PortDirection.input, width: 8);
+    createPort('cmd_valid', PortDirection.input);
+    createPort('cmd_start', PortDirection.input);
+    createPort('resp_ready', PortDirection.input);
+    connectPorts(port('clk'), engine.port('clk'));
+    connectPorts(port('reset'), engine.port('reset'));
+    connectPorts(port('clk'), slave.port('clk'));
+    connectPorts(port('reset'), slave.port('reset'));
+    connectPorts(port('cmd_data'), engine.port('cmd_data'));
+    connectPorts(port('cmd_valid'), engine.port('cmd_valid'));
+    connectPorts(port('cmd_start'), engine.port('cmd_start'));
+    connectPorts(port('resp_ready'), engine.port('resp_ready'));
+    connectInterfaces(engine.interface('bus'), slave.interface('bus'));
+
+    addOutput('cmd_ready') <= engine.output('cmd_ready');
+    addOutput('resp_data', width: 8) <= engine.output('resp_data');
+    addOutput('resp_valid') <= engine.output('resp_valid');
+    addOutput('resp_last') <= engine.output('resp_last');
+    addOutput('busy') <= engine.output('busy');
+    addOutput('pop_count', width: 2) <= slave.output('pop_count');
   }
 }
 
@@ -260,6 +383,21 @@ void main() {
 
     test('the default product id is the Mimic one', () {
       expect(const MimicUsbDeviceConfig().idProduct, equals(0x10C1));
+    });
+
+    test('READ_POP_STREAM packs both explicit register addresses', () {
+      expect(
+        _readPopStreamCmd(MimicReg.dataOut, MimicReg.dataOutPop, 512),
+        equals([
+          MimicUsbOpcode.readPopStream,
+          0x28,
+          0x00,
+          0x74,
+          0x00,
+          0x00,
+          0x02,
+        ]),
+      );
     });
   });
 
@@ -481,6 +619,83 @@ void main() {
   // slave, and the testbench drives the exposed cmd_*/resp_* ports of the
   // tbCmdPorts build.
   group('CSR round trip through the fabric', () {
+    test('READ_POP_STREAM reads and explicitly pops each FIFO word', () async {
+      final bench = _ReadPopBench();
+      bench.port('clk').getsLogic(bench.clk);
+      await bench.build();
+
+      final reset = bench.input('reset');
+      bench.input('cmd_data').inject(0);
+      bench.input('cmd_valid').inject(0);
+      bench.input('cmd_start').inject(0);
+      bench.input('resp_ready').inject(0);
+      reset.inject(1);
+      _startSim(20000000);
+      await bench.clk.nextPosedge;
+      reset.inject(0);
+      await bench.clk.nextPosedge;
+
+      await _feedCmd(
+        bench,
+        bench.clk,
+        bench.input('cmd_data'),
+        bench.input('cmd_valid'),
+        _readPopStreamCmd(_ReadPopSlave.dataAddr, _ReadPopSlave.popAddr, 8),
+      );
+      final response = await _collectResp(
+        bench,
+        bench.clk,
+        bench.input('resp_ready'),
+        8,
+      );
+      await _waitIdle(bench, bench.clk);
+
+      expect(response, equals(_le32(0x11223344) + _le32(0x55667788)));
+      expect(bench.output('pop_count').value.toInt(), equals(2));
+    });
+
+    test('READ_THEN_POP reads a snapshot and pops it once', () async {
+      final bench = _ReadPopBench();
+      bench.port('clk').getsLogic(bench.clk);
+      await bench.build();
+
+      final reset = bench.input('reset');
+      bench.input('cmd_data').inject(0);
+      bench.input('cmd_valid').inject(0);
+      bench.input('cmd_start').inject(0);
+      bench.input('resp_ready').inject(0);
+      reset.inject(1);
+      _startSim(20000000);
+      await bench.clk.nextPosedge;
+      reset.inject(0);
+      await bench.clk.nextPosedge;
+
+      await _feedCmd(
+        bench,
+        bench.clk,
+        bench.input('cmd_data'),
+        bench.input('cmd_valid'),
+        _readThenPopCmd(
+          _ReadPopSlave.snapshotAddr,
+          _ReadPopSlave.snapshotPopAddr,
+          12,
+        ),
+      );
+      final response = await _collectResp(
+        bench,
+        bench.clk,
+        bench.input('resp_ready'),
+        12,
+      );
+      await _waitIdle(bench, bench.clk);
+
+      expect(
+        response,
+        equals(_le32(1) + _le32(0xA1B2C3D4) + _le32(0x10203040)),
+      );
+      expect(bench.output('pop_count').value.toInt(), equals(1));
+    });
+
     test(
       'WRITE to SCRATCH lands; READ reads it back; ID/VERSION read fixed',
       () async {
@@ -528,7 +743,7 @@ void main() {
         final id = await _collectResp(soc, clk, respReady, 4);
         expect(_word(id), equals(0x4D494D43), reason: 'ID magic');
 
-        // READ VERSION (0x04): interface version 1.0.0.
+        // READ VERSION (0x04): interface version 1.1.0.
         await _feedCmd(
           soc,
           clk,
@@ -537,7 +752,7 @@ void main() {
           _readCmd(MimicReg.version, 4),
         );
         final ver = await _collectResp(soc, clk, respReady, 4);
-        expect(_word(ver), equals(0x00010000), reason: 'VERSION 1.0.0');
+        expect(_word(ver), equals(0x00010100), reason: 'VERSION 1.1.0');
 
         // WRITE a second SCRATCH value, then read it back: two words.
         await _feedCmd(

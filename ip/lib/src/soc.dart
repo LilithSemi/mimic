@@ -718,6 +718,13 @@ HarborSoC buildMimicSoc({
     'dbg_cache_hit': (cardPort: 'dbg_cache_hit_gray', width: sdDbgEventBits),
     'dbg_cache_miss': (cardPort: 'dbg_cache_miss_gray', width: sdDbgEventBits),
     'dbg_cache_fill': (cardPort: 'dbg_cache_fill_gray', width: sdDbgEventBits),
+    'dbg_read_start': (
+      cardPort: 'dbg_read_tx_start_gray',
+      width: sdDbgEventBits,
+    ),
+    'dbg_read_done': (cardPort: 'dbg_read_tx_done_gray', width: sdDbgEventBits),
+    'dbg_read_drop': (cardPort: 'dbg_read_drop_gray', width: sdDbgEventBits),
+    'dbg_read_abort': (cardPort: 'dbg_read_abort_gray', width: sdDbgEventBits),
   };
   dbgCounters.forEach((csrPort, spec) {
     final sync = MimicSdGraySync(width: spec.width, name: '${csrPort}_sync');
@@ -777,6 +784,28 @@ HarborSoC buildMimicSoc({
   csdCdc.input('dst_ready').srcConnection! <= ~csdCdc.output('dst_valid');
   card.input('csd').srcConnection! <= csdCdc.output('dst_data');
   card.input('csd_valid').srcConnection! <= csdCdc.output('dst_valid');
+
+  // Harbor names a handshake module by its class and not by its width. Use
+  // the same 128-bit shape as the CSD crossing so synthesis can reuse one
+  // definition. The high bits are zero and the card takes the low 32 bits.
+  final numBlocksCdc = HarborCdcHandshake(
+    dataWidth: sdResponseRegBits,
+    name: 'num_blocks_cdc',
+  );
+  soc.addSubModule(numBlocksCdc);
+  numBlocksCdc.input('src_clk').srcConnection! <= sysClk;
+  numBlocksCdc.input('src_reset').srcConnection! <= sysReset;
+  numBlocksCdc.input('src_data').srcConnection! <=
+      sdCard.output('num_blocks').zeroExtend(sdResponseRegBits);
+  numBlocksCdc.input('src_valid').srcConnection! <= Const(1);
+  numBlocksCdc.input('dst_clk').srcConnection! <= sdClk;
+  numBlocksCdc.input('dst_reset').srcConnection! <= sdReset;
+  numBlocksCdc.input('dst_ready').srcConnection! <=
+      ~numBlocksCdc.output('dst_valid');
+  card.input('num_blocks').srcConnection! <=
+      numBlocksCdc.output('dst_data').slice(sdCommandArgBits - 1, 0);
+  card.input('num_blocks_valid').srcConnection! <=
+      numBlocksCdc.output('dst_valid');
 
   // The SD domain reset, as the SoC domain sees it.
   //

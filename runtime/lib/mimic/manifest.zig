@@ -38,7 +38,7 @@ pub fn parse(gpa: std.mem.Allocator, json: []const u8) !std.json.Parsed(Manifest
 }
 
 const sample_manifest =
-    \\{ "name": "mimic", "interface_version": "1.0.0", "version_reg": 65536,
+    \\{ "name": "mimic", "interface_version": "1.1.0", "version_reg": 65792,
     \\  "vid": 4617, "pid": 4289, "cache_blocks": 8, "sd_mode": "served",
     \\  "csr_base": 0, "transport": "usb" }
 ;
@@ -48,8 +48,8 @@ test "parse reads every manifest field" {
     defer parsed.deinit();
     const m = parsed.value;
     try std.testing.expectEqualStrings("mimic", m.name);
-    try std.testing.expectEqualStrings("1.0.0", m.interface_version);
-    try std.testing.expectEqual(@as(u32, 65536), m.version_reg);
+    try std.testing.expectEqualStrings("1.1.0", m.interface_version);
+    try std.testing.expectEqual(@as(u32, 65792), m.version_reg);
     try std.testing.expectEqual(@as(u16, 4617), m.vid);
     try std.testing.expectEqual(@as(u16, 4289), m.pid);
     try std.testing.expectEqual(@as(u32, 8), m.cache_blocks);
@@ -73,7 +73,7 @@ test "manifest values match the CSR and USB constants" {
 
 test "parse rejects a manifest with an unknown transport" {
     const bad =
-        \\{ "name": "mimic", "interface_version": "1.0.0", "version_reg": 65536,
+        \\{ "name": "mimic", "interface_version": "1.1.0", "version_reg": 65792,
         \\  "vid": 4617, "pid": 4289, "cache_blocks": 8, "sd_mode": "served",
         \\  "csr_base": 0, "transport": "uart" }
     ;

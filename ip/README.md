@@ -119,6 +119,10 @@ The runtime owns replacement policy. It can send a block as a fill with an
 LBA and the reserved sequence tag 0. A CMD24 write invalidates the matching
 line. CMD0 and reset invalidate all lines.
 
+CMD0 also advances the generation in request records. The runtime clears its
+cache model when it sees a new generation. Thus, an entry that was pending
+before card initialization cannot suppress a response after initialization.
+
 `--cache-lines` changes the hardware line count. The count must be a power of
 two and at least two. More lines use more block RAM.
 

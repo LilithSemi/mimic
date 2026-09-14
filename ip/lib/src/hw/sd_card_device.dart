@@ -153,6 +153,8 @@ class MimicSdCardDevice extends BridgeModule {
     createPort('sd_dat_in', PortDirection.input, width: busWidth);
     createPort('csd', PortDirection.input, width: sdResponseRegBits);
     createPort('csd_valid', PortDirection.input);
+    createPort('num_blocks', PortDirection.input, width: sdCommandArgBits);
+    createPort('num_blocks_valid', PortDirection.input);
 
     // The block read channels. `card_enable` and `data_blocks_pushed_gray`
     // are RAW signals of the SoC clock domain and cross in this module.
@@ -185,7 +187,6 @@ class MimicSdCardDevice extends BridgeModule {
     // the address of another push.
     createPort('data_fill_lba', PortDirection.input, width: sdCommandArgBits);
     createPort('data_fill_valid', PortDirection.input);
-
     // The block WRITE channels. `out_word` with `out_push` puts one word of
     // a block that the host wrote into the channel that carries it to the
     // runtime, and the acknowledge channel brings the answer back. CTRL bit
@@ -258,6 +259,10 @@ class MimicSdCardDevice extends BridgeModule {
     addOutput('dbg_cache_hit_gray', width: sdDbgEventBits);
     addOutput('dbg_cache_miss_gray', width: sdDbgEventBits);
     addOutput('dbg_cache_fill_gray', width: sdDbgEventBits);
+    addOutput('dbg_read_tx_start_gray', width: sdDbgEventBits);
+    addOutput('dbg_read_tx_done_gray', width: sdDbgEventBits);
+    addOutput('dbg_read_drop_gray', width: sdDbgEventBits);
+    addOutput('dbg_read_abort_gray', width: sdDbgEventBits);
 
     // The SD activity event for the board LED. It is a level that inverts
     // once per event, not a pulse. See where it is built, below.
@@ -321,6 +326,27 @@ class MimicSdCardDevice extends BridgeModule {
     fsm.input('cmd_valid').srcConnection! <= link.output('cmd_valid');
     fsm.input('cmd_crc_ok').srcConnection! <= link.output('cmd_crc_ok');
 
+    // The request generation changes on CMD0. Start one step below zero so
+    // the first identification CMD0 publishes generation zero, which keeps
+    // power-on requests simple while every later re-identification differs.
+    final cardEpoch = Logic(name: 'card_epoch', width: sdRequestEpochBits);
+    Sequential(
+      clk,
+      reset: reset,
+      resetValues: {
+        cardEpoch: Const(
+          (1 << sdRequestEpochBits) - 1,
+          width: sdRequestEpochBits,
+        ),
+      },
+      [
+        If(
+          fsm.output('go_idle'),
+          then: [cardEpoch < cardEpoch + Const(1, width: sdRequestEpochBits)],
+        ),
+      ],
+    );
+
     // The response path, state machine to link, and the busy line back.
     // The link drops a pulse on `resp_start` that comes while `resp_busy`
     // is high, and the state machine reads the same `resp_busy` to hold
@@ -330,9 +356,9 @@ class MimicSdCardDevice extends BridgeModule {
     link.input('resp_kind').srcConnection! <= fsm.output('resp_kind');
     fsm.input('resp_busy').srcConnection! <= link.output('resp_busy');
 
-    // The two single-bit values that come out of the SoC clock domain.
-    // Each one is quasi-static or a level, so a two-flop synchroniser per
-    // bit is the right crossing and it needs the destination clock alone.
+    // The control values that come out of the SoC clock domain are
+    // quasi-static levels. Each takes a two-flop synchroniser in this
+    // destination clock domain.
     final writeBackSync = HarborCdcSync(name: 'write_back_sync');
     addSubModule(writeBackSync);
     writeBackSync.input('async_in').srcConnection! <= input('write_back');
@@ -391,6 +417,11 @@ class MimicSdCardDevice extends BridgeModule {
     final blockFillValid = (~input('data_tag_empty') & input('data_fill_valid'))
         .named('data_fill_valid_value');
 
+    // The capacity register is declared before both consumers so each
+    // submodule input has a direct internal driver. Do not route one
+    // submodule input through another submodule input.
+    final numBlocksReg = Logic(name: 'num_blocks_reg', width: sdCommandArgBits);
+
     // The block read sequencer. It sits between the state machine, which
     // decides that a read starts, and the link, which puts the bytes on
     // the wire.
@@ -404,6 +435,8 @@ class MimicSdCardDevice extends BridgeModule {
     readPath.input('enable').srcConnection! <= cardEnable;
     readPath.input('start').srcConnection! <= fsm.output('read_start');
     readPath.input('lba').srcConnection! <= fsm.output('read_lba');
+    readPath.input('num_blocks').srcConnection! <= numBlocksReg;
+    readPath.input('epoch').srcConnection! <= cardEpoch;
     readPath.input('abort').srcConnection! <= fsm.output('read_abort');
     readPath.input('cmd_busy').srcConnection! <= link.output('resp_busy');
     readPath.input('data_word').srcConnection! <= input('data_word');
@@ -419,7 +452,6 @@ class MimicSdCardDevice extends BridgeModule {
     readPath.input('multi').srcConnection! <= fsm.output('read_multi');
     readPath.input('block_fill_lba').srcConnection! <= blockFillLba;
     readPath.input('block_fill_valid').srcConnection! <= blockFillValid;
-
     // The block cache. It sits beside the read path and holds the blocks
     // the runtime chose to leave on the card. A read that it holds costs
     // NO record and no USB round trip at all, which is the whole reason it
@@ -487,6 +519,7 @@ class MimicSdCardDevice extends BridgeModule {
     writePath.input('write_back').srcConnection! <= writeBack;
     writePath.input('start').srcConnection! <= fsm.output('write_start');
     writePath.input('lba').srcConnection! <= fsm.output('write_lba');
+    writePath.input('epoch').srcConnection! <= cardEpoch;
     writePath.input('abort').srcConnection! <= fsm.output('write_abort');
     writePath.input('rx_byte').srcConnection! <= link.output('dat_byte');
     writePath.input('rx_byte_valid').srcConnection! <=
@@ -635,6 +668,26 @@ class MimicSdCardDevice extends BridgeModule {
       output(port) <= counter.output('gray');
     });
 
+    // Demand read counters. They show whether a block reached the SD link,
+    // whether the link finished it and whether recovery discarded work.
+    final readCounters = <String, String>{
+      'dbg_read_tx_start_gray': 'dbg_tx_start',
+      'dbg_read_tx_done_gray': 'dbg_tx_done',
+      'dbg_read_drop_gray': 'dbg_drop',
+      'dbg_read_abort_gray': 'dbg_abort',
+    };
+    readCounters.forEach((port, event) {
+      final counter = MimicSdGrayCounter(
+        width: sdDbgEventBits,
+        name: '${port}_counter',
+      );
+      addSubModule(counter);
+      counter.input('clk').srcConnection! <= clk;
+      counter.input('reset').srcConnection! <= reset;
+      counter.input('inc').srcConnection! <= readPath.output(event);
+      output(port) <= counter.output('gray');
+    });
+
     // The timeout event, published as a level for the SoC domain. It takes
     // the reset ASYNCHRONOUSLY for the reason the activity toggle below
     // does: a board whose SD clock never ticks would otherwise hold X here
@@ -689,12 +742,20 @@ class MimicSdCardDevice extends BridgeModule {
     Sequential(
       clk,
       reset: reset,
-      resetValues: {csdReg: Const(sdCardCsdValue, width: sdResponseRegBits)},
+      resetValues: {
+        csdReg: Const(sdCardCsdValue, width: sdResponseRegBits),
+        numBlocksReg: Const(0, width: sdCommandArgBits),
+      },
       [
         If(input('csd_valid'), then: [csdReg < input('csd')]),
+        If(
+          input('num_blocks_valid'),
+          then: [numBlocksReg < input('num_blocks')],
+        ),
       ],
     );
     fsm.input('csd').srcConnection! <= csdReg;
+    fsm.input('num_blocks').srcConnection! <= numBlocksReg;
 
     output('card_state') <= fsm.output('card_state');
 

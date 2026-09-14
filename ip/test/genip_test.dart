@@ -31,7 +31,7 @@ void main() {
     // Zig round-trip tests parse exactly these bytes, so a manifest built
     // here with the same inputs must produce the same map.
     const sampleJson = '''
-{ "name": "mimic", "interface_version": "1.0.0", "version_reg": 65536,
+{ "name": "mimic", "interface_version": "1.1.0", "version_reg": 65792,
   "vid": 4617, "pid": 4289, "cache_blocks": 8, "sd_mode": "served",
   "csr_base": 0, "transport": "usb" }
 ''';
@@ -39,8 +39,8 @@ void main() {
     test('toJson matches the runtime manifest.zig sample field for field', () {
       const manifest = MimicManifest(
         name: 'mimic',
-        interfaceVersion: '1.0.0',
-        versionReg: 65536,
+        interfaceVersion: '1.1.0',
+        versionReg: 65792,
         idVendor: 4617,
         idProduct: 4289,
         cacheBlocks: 8,

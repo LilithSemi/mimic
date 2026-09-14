@@ -204,19 +204,23 @@ fn cmdProbe(io: Io, device: Device, out: *Io.Writer) !void {
 /// bits decoded.
 fn cmdInfo(device: Device, out: *Io.Writer) !void {
     const names = [_][]const u8{
-        "ID",         "VERSION",       "CTRL",     "STATUS",
-        "NUM_BLOCKS", "SCRATCH",       "REQ",      "REQ_COUNT",
-        "DATA_IN",    "DATA_IN_COUNT", "DATA_OUT", "DATA_OUT_COUNT",
-        "EVENT",      "IRQ_ENABLE",    "DBG_CMD",  "DBG_IN",
-        "DBG_RESET",  "CARD_STATE",    "CSD_0",    "CSD_1",
-        "CSD_2",      "CSD_3",         "SD_CLK",   "SD_CMD",
-        "SD_CRC_ERR", "SD_RESP",
+        "ID",         "VERSION",       "CTRL",        "STATUS",
+        "NUM_BLOCKS", "SCRATCH",       "REQ",         "REQ_COUNT",
+        "DATA_IN",    "DATA_IN_COUNT", "DATA_OUT",    "DATA_OUT_COUNT",
+        "EVENT",      "IRQ_ENABLE",    "DBG_CMD",     "DBG_IN",
+        "DBG_RESET",  "CARD_STATE",    "CSD_0",       "CSD_1",
+        "CSD_2",      "CSD_3",         "SD_CLK",      "SD_CMD",
+        "SD_CRC_ERR", "SD_RESP",       "REQ_HI",      "DATA_TAG",
+        "REQ_POP",    "DATA_OUT_POP",  "WRITE_ACK",   "DATA_FILL_LBA",
+        "CACHE_HIT",  "CACHE_MISS",    "CACHE_FILL",  "CACHE_LINES",
+        "REQ_SNAP_N", "REQ_SNAP",      "REQ_SNAP_HI", "READ_START",
+        "READ_DONE",  "READ_DROP",     "READ_ABORT",
     };
     // One burst over the whole block, REQ included. NO address of the map
     // has a side effect on read, so this walk cannot take a request away
     // from a `serve` loop that runs at the same time, whatever it covers.
     // The pop is a WRITE of REG_REQ_POP and this command writes nothing.
-    comptime std.debug.assert(names.len * 4 == sd.REG_DBG_SD_RESP + 4);
+    comptime std.debug.assert(names.len * 4 == sd.REG_DBG_READ_ABORT + 4);
     var words: [names.len]u32 = undefined;
     try device.readRegs(sd.REG_ID, &words);
     for (names, 0..) |name, i| {
@@ -525,6 +529,11 @@ fn cmdServe(
     // model cannot hold turns the model off rather than model it wrong.
     try server.learnCache();
 
+    // Learn the full input credit while the card is still off. The first
+    // SD read then spends known-safe space instead of waiting for another
+    // USB register round trip on its critical path.
+    try server.learnDataInCredit();
+
     // An earlier run that stopped between the block and the acknowledgement
     // left the 512 bytes of that block on the write channel, and the card
     // still counts one block that nobody took. Nothing clears that by
@@ -557,7 +566,10 @@ fn cmdServe(
         // The poll is a USB round trip of its own, so an idle loop paces
         // itself on the link and does not spin on the CPU.
         const taken = try server.servePending();
-        if (taken == 0) try server.continueReadAhead();
+        if (taken == 0) {
+            try server.continueReadAhead();
+            io.sleep(Io.Duration.fromMicroseconds(serve.CLI_IDLE_POLL_WAIT_US), .awake) catch {};
+        }
         if (taken != 0) try out.flush();
     }
 

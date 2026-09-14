@@ -185,6 +185,9 @@ class _DebugBridge extends BridgeModule {
     cdc.input('dst_ready').srcConnection! <= ~cdc.output('dst_valid');
     card.input('csd').srcConnection! <= cdc.output('dst_data');
     card.input('csd_valid').srcConnection! <= cdc.output('dst_valid');
+    card.input('num_blocks').srcConnection! <=
+        Const(sdCardCapacityBlocks, width: sdCommandArgBits);
+    card.input('num_blocks_valid').srcConnection! <= Const(1);
 
     // The block read path is off in this bench. Every input needs a
     // driver, because an input that nothing drives holds X and the X

@@ -92,7 +92,7 @@ void main() {
     );
     expect(
       mimicWord(rbytes.sublist(4, 8)),
-      equals(0x00010000),
+      equals(0x00010100),
       reason: 'VERSION word',
     );
   });
@@ -134,7 +134,7 @@ void main() {
     );
     expect(
       mimicWord(all.sublist(4, 8)),
-      equals(0x00010000),
+      equals(0x00010100),
       reason: 'word 1 is VERSION',
     );
     // The bulk IN data toggle must alternate across the four packets.

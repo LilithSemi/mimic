@@ -24,7 +24,7 @@ import 'sd_read_bench.dart';
 /// The 8 bytes of the SCR this card sends, as LITERALS. See
 /// sd_setup_commands_test.dart, which holds the same list for the same
 /// reason.
-const List<int> _scrBytes = [0x02, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+const List<int> _scrBytes = [0x02, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
 /// Reads [count] blocks with CMD18 from [lba] and stops with CMD12.
 ///
@@ -106,13 +106,57 @@ void main() {
     final b = await setUpSdReadBench();
     await wbWrite(b, MimicReg.ctrl, MimicCtrl.enable);
     await walkToTran(b);
-
     await readMultiBlock(b, lba: sdTestLba, count: 3);
 
     expect(
       await wbRead(b, MimicReg.event),
       0,
       reason: 'a stream that worked must raise no event.',
+    );
+    await Simulator.endSimulation();
+  });
+
+  test('CMD18 posts no request beyond NUM_BLOCKS', () async {
+    final b = await setUpSdReadBench(capacityBlocks: sdTestLba + 2);
+    await wbWrite(b, MimicReg.ctrl, MimicCtrl.enable);
+    await walkToTran(b);
+    expect(
+      b.bridge.card.subModules
+          .whereType<MimicSdCardFsm>()
+          .single
+          .input('num_blocks')
+          .value
+          .toInt(),
+      sdTestLba + 2,
+      reason: 'the SD clock domain must hold the configured capacity',
+    );
+
+    await b.host.idle(sdCommandGapClocks);
+    await b.host.sendCommand(sdCmdReadMultipleBlock, sdTestLba);
+    final answer = await b.host.receiveResponse(SdResponseKind.r1);
+    expect(answer.timedOut, isFalse);
+    expect(answer.payload & (1 << sdStatusErrorBit), 0);
+
+    for (var offset = 0; offset < 2; offset++) {
+      final lba = sdTestLba + offset;
+      final want = sdTestBlockBytesFor(lba);
+      await answerRecord(b, want, expectLba: lba);
+      final got = await b.host.receiveDataBlock(timeoutClocks: 400);
+      expect(got.timedOut, isFalse, reason: 'block $lba never came');
+      expect(got.bytes, want);
+      await b.host.idle(8);
+    }
+
+    await b.host.idle(8);
+    expect(
+      b.cardState,
+      sdCardStateTran,
+      reason: 'the stream must stop after the last block of the card',
+    );
+    expect(
+      await wbRead(b, MimicReg.reqCount),
+      0,
+      reason: 'the card must not ask the runtime for NUM_BLOCKS',
     );
     await Simulator.endSimulation();
   });

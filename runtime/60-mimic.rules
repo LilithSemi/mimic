@@ -1,0 +1,2 @@
+# Permit the active local user and plugdev members to use Mimic.
+SUBSYSTEM=="usb", ATTR{idVendor}=="1209", ATTR{idProduct}=="10c1", MODE="0660", GROUP="plugdev", TAG+="uaccess"
