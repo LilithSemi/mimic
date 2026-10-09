@@ -151,10 +151,12 @@ void main() {
     });
 
     test('a pin the board does not catalog throws instead of vanishing', () {
-      // HarborBoard.fpgaTarget is the check. Asking the ULX3S catalog for the
-      // OrangeCrab USB pads must fail loudly, not quietly drop them.
+      // HarborBoard.fpgaTarget is the check. A pin name that the ULX3S
+      // catalog does not have must cause an error.
       expect(
-        () => HarborBoard.get('ulx3s-85f').fpgaTarget(pins: const ['usb_dp']),
+        () =>
+            HarborBoard.get('ulx3s-85f')
+                .fpgaTarget(pins: const ['no_such_pin']),
         throwsA(isA<ArgumentError>()),
       );
     });

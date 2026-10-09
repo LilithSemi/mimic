@@ -39,7 +39,7 @@ buildDartApplication (finalAttrs: {
   pubspecLock = lib.importJSON ../../ip/pubspec.lock.json;
 
   gitHashes = {
-    harbor = "sha256-1Bcdj8vsvOd/vSfpFHNui3fsnw0zjHRC4GcJX2zB6k8=";
+    harbor = "sha256-CrtRfSxeyQu1yZ4HV62zalDjy14VVDx+08EJz3YB4A4=";
   };
 
   dartEntryPoints."bin/mimic-genip" = "bin/mimic_genip.dart";
