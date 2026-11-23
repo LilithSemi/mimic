@@ -27,19 +27,28 @@ import 'soc.dart';
 /// Reading the name out of the elaborated design keeps the script correct
 /// when a PHY instance is renamed. A hardcoded copy went stale once, and the
 /// script then matched no cells.
-Set<String> usbPhyInstanceNames(Module root) {
-  final names = <String>{};
+Set<String> usbPhyInstanceNames(Module root) => {
+  for (final m in _usbPhyModules(root)) m.uniqueInstanceName,
+};
+
+/// The module definition names of the USB line PHY. Yosys gives most cells
+/// auto names, and the `src` attribute of a cell holds the `.sv` file of its
+/// definition, so the pre-place script also matches on these.
+Set<String> usbPhyDefinitionNames(Module root) => {
+  for (final m in _usbPhyModules(root)) m.definitionName,
+};
+
+List<Module> _usbPhyModules(Module root) {
+  final found = <Module>[];
   void walk(Module module) {
     for (final sub in module.subModules) {
-      if (sub is HarborUsbFsRx || sub is HarborUsbFsTx) {
-        names.add(sub.uniqueInstanceName);
-      }
+      if (sub is HarborUsbFsRx || sub is HarborUsbFsTx) found.add(sub);
       walk(sub);
     }
   }
 
   walk(root);
-  return names;
+  return found;
 }
 
 /// Formats [items] as a Python tuple of strings.
@@ -61,6 +70,7 @@ String _pyTuple(List<String> items) {
 String usbPreplacePy({
   required List<String> padCells,
   required List<String> phyPatterns,
+  List<String> phySources = const [],
 }) =>
     '''
 # Pre-place: keep the USB line PHY logic next to the USB pads.
@@ -91,6 +101,7 @@ import sys
 
 PAD_CELLS = ${_pyTuple(padCells)}
 PHY_PATTERNS = ${_pyTuple(phyPatterns)}
+PHY_SOURCES = ${_pyTuple(phySources)}
 MARGIN = 16
 
 _SITE = re.compile(r"^X(\\d+)/Y(\\d+)/")
@@ -138,7 +149,14 @@ ctx.createRectangularRegion("usb_phy", x0, y0, x1, y1)
 phy_count = 0
 for kv in ctx.cells:
     name = str(kv.first)
-    if any(p in name for p in PHY_PATTERNS):
+    src = ""
+    for attr in kv.second.attrs:
+        if str(attr.first) == "src":
+            src = str(attr.second)
+            break
+    if any(p in name for p in PHY_PATTERNS) or any(
+        ("/" + s) in src for s in PHY_SOURCES
+    ):
         ctx.constrainCellToRegion(name, "usb_phy")
         phy_count += 1
 
@@ -668,6 +686,9 @@ class MimicGenIpConfig {
     final script = usbPreplacePy(
       padCells: mimicUsbPadPins,
       phyPatterns: [for (final n in phyNames) '.$n.'],
+      phySources: [
+        for (final d in usbPhyDefinitionNames(soc).toList()..sort()) '$d.sv',
+      ],
     );
     Directory('${outputDir.path}/support/nextpnr').createSync(recursive: true);
     final file = File('${outputDir.path}/support/nextpnr/constraints.py');
