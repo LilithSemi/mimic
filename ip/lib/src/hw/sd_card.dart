@@ -334,6 +334,12 @@ final _mimicSdCardRegisterMap = HarborDeviceRegisterMap(
       offset: MimicReg.dbgReadAbort,
       readOnly: true,
     ),
+    HarborDeviceField(
+      name: 'DBG_PINS',
+      width: 4,
+      offset: MimicReg.dbgPins,
+      readOnly: true,
+    ),
   ],
 );
 
@@ -469,6 +475,8 @@ class MimicSdCard extends BridgeModule
     createPort('dbg_read_done', PortDirection.input, width: sdDbgEventBits);
     createPort('dbg_read_drop', PortDirection.input, width: sdDbgEventBits);
     createPort('dbg_read_abort', PortDirection.input, width: sdDbgEventBits);
+    // The SD pads, already synchronised by the SoC. See [MimicDbgPins].
+    createPort('dbg_pins', PortDirection.input, width: MimicDbgPins.width);
 
     // The runtime end of the block read channels. The SoC owns the two
     // FIFOs, so this module drives the read side of the request channel
@@ -675,17 +683,17 @@ class MimicSdCard extends BridgeModule
         'with the fail bit at $sdWriteAckFailBit.',
       );
     }
-    if (MimicReg.dbgReadAbort >= windowSize) {
+    if (MimicReg.dbgPins >= windowSize) {
       // The decode reads the LOW 8 bits of the address, so a register
       // above 0xFF would answer at a second address as well.
       throw StateError(
-        'The map ends at ${MimicReg.dbgReadAbort} and the slave window is '
+        'The map ends at ${MimicReg.dbgPins} and the slave window is '
         '$windowSize bytes.',
       );
     }
-    if (MimicReg.dbgReadAbort > 0xFF) {
+    if (MimicReg.dbgPins > 0xFF) {
       throw StateError(
-        'The map ends at ${MimicReg.dbgReadAbort}, which does not fit in the '
+        'The map ends at ${MimicReg.dbgPins}, which does not fit in the '
         '8 bits of the register decode.',
       );
     }
@@ -1461,6 +1469,10 @@ class MimicSdCard extends BridgeModule
 
                     CaseItem(Const(MimicReg.dbgReadAbort, width: 8), [
                       bus.dataOut < input('dbg_read_abort').zeroExtend(32),
+                    ]),
+
+                    CaseItem(Const(MimicReg.dbgPins, width: 8), [
+                      bus.dataOut < input('dbg_pins').zeroExtend(32),
                     ]),
 
                     // CSD_0 to CSD_3: RW. The runtime writes the whole CSD

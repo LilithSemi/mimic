@@ -257,13 +257,13 @@ fn cmdInfo(device: *Device, out: *Io.Writer) !void {
         "REQ_POP",    "DATA_OUT_POP",  "WRITE_ACK",   "DATA_FILL_LBA",
         "CACHE_HIT",  "CACHE_MISS",    "CACHE_FILL",  "CACHE_LINES",
         "REQ_SNAP_N", "REQ_SNAP",      "REQ_SNAP_HI", "READ_START",
-        "READ_DONE",  "READ_DROP",     "READ_ABORT",
+        "READ_DONE",  "READ_DROP",     "READ_ABORT",  "DBG_PINS",
     };
     // One burst over the whole block, REQ included. NO address of the map
     // has a side effect on read, so this walk cannot take a request away
     // from a `serve` loop that runs at the same time, whatever it covers.
     // The pop is a WRITE of REG_REQ_POP and this command writes nothing.
-    comptime std.debug.assert(names.len * 4 == sd.REG_DBG_READ_ABORT + 4);
+    comptime std.debug.assert(names.len * 4 == sd.REG_DBG_PINS + 4);
     var words: [names.len]u32 = undefined;
     try device.readRegs(sd.REG_ID, &words);
     for (names, 0..) |name, i| {
@@ -280,6 +280,15 @@ fn cmdInfo(device: *Device, out: *Io.Writer) !void {
         words[sd.REG_CARD_STATE / 4] & sd.CARD_STATE_MASK,
     );
     try out.print("CARD_STATE: {s}\n", .{card.name()});
+    const pins = words[sd.REG_DBG_PINS / 4];
+    try out.print(
+        "PINS: cmd={d} cmd_oe={d} cmd_out={d} dat0={d} dat_oe={d} dat1..3={d}{d}{d} clk={d}\n",
+        .{
+            pins & 1,        (pins >> 1) & 1, (pins >> 2) & 1,
+            (pins >> 3) & 1, (pins >> 4) & 1, (pins >> 5) & 1,
+            (pins >> 6) & 1, (pins >> 7) & 1, (pins >> 8) & 1,
+        },
+    );
 
     // The CSD carries the size that the card reports to the host, so the
     // operator sees it beside the card state.

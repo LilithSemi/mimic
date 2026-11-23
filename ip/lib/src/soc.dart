@@ -620,6 +620,9 @@ HarborSoC buildMimicSoc({
   // shape MimicUsbDevice uses for D+ and D-. Without it the split ports come
   // up to the top, where a test can drive them with no shared bidirectional
   // net (ROHD does not co-simulate one between siblings).
+  late final Logic cmdLevel;
+  late final Logic dat0Level;
+  final datHighLevels = <Logic>[];
   if (ownPads) {
     soc.createPort(mimicSdCmdPinName, PortDirection.inOut);
     soc.createPort(mimicSdDatPinName, PortDirection.inOut);
@@ -637,6 +640,8 @@ HarborSoC buildMimicSoc({
         ).out;
     card.input('sd_cmd_in').srcConnection! <= cmdPad;
     card.input('sd_dat_in').srcConnection! <= datPad;
+    cmdLevel = cmdPad;
+    dat0Level = datPad[0];
 
     // DAT1 to DAT3. Nothing in this design reads them. Each one is a
     // top-level input so that the ball takes the board constraint, and the
@@ -650,6 +655,7 @@ HarborSoC buildMimicSoc({
     // them is that they are ports of the top module.
     for (final pin in mimicSdDatPullupPinNames) {
       soc.createPort(pin, PortDirection.input);
+      datHighLevels.add(soc.input(pin));
     }
   } else {
     const splitPorts = [
@@ -663,7 +669,35 @@ HarborSoC buildMimicSoc({
     for (final p in splitPorts) {
       soc.exposePin(card, p, externalName: p);
     }
+    cmdLevel = soc.input('sd_cmd_in');
+    dat0Level = soc.input('sd_dat_in')[0];
   }
+
+  // DBG_PINS. Each bit is independent, so one synchroniser per bit is
+  // enough. Lines that this build has no pad for read 1, which is the idle
+  // level of the bus.
+  final pinBits = <int, Logic>{
+    MimicDbgPins.cmdPad: cmdLevel,
+    MimicDbgPins.cmdOe: card.output('sd_cmd_oe'),
+    MimicDbgPins.cmdOut: card.output('sd_cmd_out'),
+    MimicDbgPins.dat0Pad: dat0Level,
+    MimicDbgPins.datOe: card.output('sd_dat_oe'),
+    for (var i = 0; i < 3; i++)
+      MimicDbgPins.dat1Pad + i: i < datHighLevels.length
+          ? datHighLevels[i]
+          : Const(1),
+    MimicDbgPins.clkPad: soc.input(mimicSdClkPinName),
+  };
+  final pinSynced = <Logic>[];
+  for (var i = 0; i < MimicDbgPins.width; i++) {
+    final sync = HarborCdcSync(name: 'dbg_pins_sync_$i');
+    soc.addSubModule(sync);
+    sync.input('async_in').srcConnection! <= pinBits[i]!;
+    sync.input('dst_clk').srcConnection! <= sysClk;
+    sync.input('dst_reset').srcConnection! <= sysReset;
+    pinSynced.add(sync.output('sync_out'));
+  }
+  sdCard.input('dbg_pins').srcConnection! <= pinSynced.rswizzle();
 
   // `card_state` crosses from the SD clock domain into the SoC domain. The
   // two clocks are genuinely asynchronous, and the SD clock STOPS when the

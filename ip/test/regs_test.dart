@@ -53,6 +53,7 @@ void main() {
       expect(MimicReg.dbgReadDone, equals(0xA0));
       expect(MimicReg.dbgReadDrop, equals(0xA4));
       expect(MimicReg.dbgReadAbort, equals(0xA8));
+      expect(MimicReg.dbgPins, equals(0xAC));
     });
 
     test('the block cache registers sit above the write path', () {
@@ -232,6 +233,7 @@ void main() {
         MimicReg.dbgReadDone,
         MimicReg.dbgReadDrop,
         MimicReg.dbgReadAbort,
+        MimicReg.dbgPins,
       ];
       var prev = -4;
       for (final o in offsets) {

@@ -50,6 +50,7 @@
 ///   0xA0 DBG_READ_DONE   RO  demand data frames completed
 ///   0xA4 DBG_READ_DROP   RO  unmatched blocks discarded
 ///   0xA8 DBG_READ_ABORT  RO  reads stopped by the SD host
+///   0xAC DBG_PINS        RO  live SD pad levels and card drive, see [MimicDbgPins]
 ///
 /// NO ADDRESS OF THIS MAP HAS A SIDE EFFECT ON READ.
 ///   A read of any address, at any time, in any order, changes no state of
@@ -477,6 +478,10 @@ class MimicReg {
   /// the runtime disabling the card.
   static const int dbgReadAbort = 0xA8;
 
+  /// DBG_PINS: read-only. The SD pad levels and the drive of the card,
+  /// each bit through its own synchroniser. See [MimicDbgPins].
+  static const int dbgPins = 0xAC;
+
   /// The three block cache counters, in address order.
   static const List<int> dbgCache = [dbgCacheHit, dbgCacheMiss, dbgCacheFill];
 
@@ -503,6 +508,38 @@ class MimicRegValue {
 
   /// Interface version as a dotted string.
   static const String versionString = '0.1.0';
+}
+
+/// DBG_PINS register bits.
+///
+/// A pad bit is the level the FPGA reads on the ball. A pad that reads 0
+/// while the card does not drive it is held low from outside the card.
+class MimicDbgPins {
+  MimicDbgPins._();
+
+  /// Bit 0: the CMD pad level.
+  static const int cmdPad = 0;
+
+  /// Bit 1: the card drives CMD.
+  static const int cmdOe = 1;
+
+  /// Bit 2: the value the card puts on CMD.
+  static const int cmdOut = 2;
+
+  /// Bit 3: the DAT0 pad level.
+  static const int dat0Pad = 3;
+
+  /// Bit 4: the card drives DAT.
+  static const int datOe = 4;
+
+  /// Bits 7 to 5: the DAT1 to DAT3 pad levels.
+  static const int dat1Pad = 5;
+
+  /// Bit 8: the SD clock pad level.
+  static const int clkPad = 8;
+
+  /// Number of bits in the field.
+  static const int width = 9;
 }
 
 /// CTRL register bits.
