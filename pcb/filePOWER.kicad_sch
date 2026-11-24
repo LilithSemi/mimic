@@ -14,7 +14,7 @@
 		(comment 4 "Designed by: Greg Davill")
 	)
 	(lib_symbols
-		(symbol "Regulator_Switching:TLV62569DRL"
+		(symbol "mimic:TLV62569DRL"
 			(exclude_from_sim no)
 			(in_bom yes)
 			(on_board yes)
@@ -698,7 +698,7 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "gkl_pmic:NCP167"
+		(symbol "mimic:NCP115"
 			(pin_names
 				(offset 1.016)
 			)
@@ -760,7 +760,7 @@
 					)
 				)
 			)
-			(symbol "NCP167_0_1"
+			(symbol "NCP115_0_1"
 				(rectangle
 					(start -7.62 5.08)
 					(end 7.62 -5.08)
@@ -773,7 +773,7 @@
 					)
 				)
 			)
-			(symbol "NCP167_1_1"
+			(symbol "NCP115_1_1"
 				(pin input line
 					(at 11.43 2.54 180)
 					(length 3.81)
@@ -845,6 +845,12 @@
 							)
 						)
 					)
+				)
+				(pin passive line
+					(at 0 -7.62 90)
+					(length 2.54)
+					(name "EP" (effects (font (size 1.27 1.27))))
+					(number "5" (effects (font (size 1.27 1.27))))
 				)
 			)
 			(embedded_fonts no)
@@ -965,7 +971,7 @@
 			(embedded_fonts no)
 		)
 	)
-	(symbol (lib_id "Regulator_Switching:TLV62569DRL") (at 38.10 50.80 0) (unit 1) (body_style 1)
+	(symbol (lib_id "mimic:TLV62569DRL") (at 38.10 50.80 0) (unit 1) (body_style 1)
 		(exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (dnp no)
 		(uuid "e9998f13-b89a-437e-b9f7-5dc4a40ecd1e")
 		(property "Reference" "U1" (at 40.64 49.53 0) (effects (font (size 1.27 1.27)) (justify left)))
@@ -1057,7 +1063,7 @@
 	)
 	(global_label "P1.1V" (shape input) (at 251.46 46.99 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "9cabf7c9-1603-4118-88c2-ed318275fd42") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 251.46 46.99 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(global_label "GND" (shape input) (at 251.46 54.61 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "19240435-da24-4d4d-8d3c-3cd5c3962787") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 251.46 54.61 0) (hide yes) (effects (font (size 1.27 1.27)))))
-	(symbol (lib_id "Regulator_Switching:TLV62569DRL") (at 38.10 88.90 0) (unit 1) (body_style 1)
+	(symbol (lib_id "mimic:TLV62569DRL") (at 38.10 88.90 0) (unit 1) (body_style 1)
 		(exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (dnp no)
 		(uuid "6ae95a34-2b66-43d5-9cb9-ea5791d9b21e")
 		(property "Reference" "U2" (at 40.64 87.63 0) (effects (font (size 1.27 1.27)) (justify left)))
@@ -1160,7 +1166,7 @@
 	)
 	(global_label "VSYS" (shape input) (at 38.10 123.19 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "7c90ffab-369b-4fa9-bc87-7e411560e8cb") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 38.10 123.19 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(global_label "EN" (shape input) (at 38.10 130.81 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "85925a53-da6b-490a-aaac-7885da1f4f99") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 38.10 130.81 0) (hide yes) (effects (font (size 1.27 1.27)))))
-	(symbol (lib_id "gkl_pmic:NCP167") (at 68.58 127.00 0) (unit 1) (body_style 1)
+	(symbol (lib_id "mimic:NCP115") (at 68.58 127.00 0) (unit 1) (body_style 1)
 		(exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (dnp no)
 		(uuid "5efa294a-2eb4-47c8-8902-9922509aa876")
 		(property "Reference" "U10" (at 71.12 125.73 0) (effects (font (size 1.27 1.27)) (justify left)))
@@ -1256,4 +1262,5 @@
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005d1738db" (reference "#FLG05") (unit 1))))
 	)
 	(global_label "GND" (shape input) (at 68.58 165.10 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "25d7c0c1-3d79-4e9c-af97-a60b777a198b") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 68.58 165.10 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(global_label "GND" (shape input) (at 68.58 134.62 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "f46123e2-9481-42ec-9d01-4351769fdee2") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 68.58 134.62 0) (hide yes) (effects (font (size 1.27 1.27)))))
 )

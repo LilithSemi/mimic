@@ -544,7 +544,7 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "gkl_mem:AT25SF081"
+		(symbol "mimic:W25Q128JV"
 			(pin_names
 				(offset 1.016)
 			)
@@ -606,7 +606,7 @@
 					)
 				)
 			)
-			(symbol "AT25SF081_0_1"
+			(symbol "W25Q128JV_0_1"
 				(rectangle
 					(start -10.16 6.35)
 					(end 10.16 -6.35)
@@ -619,7 +619,7 @@
 					)
 				)
 			)
-			(symbol "AT25SF081_1_1"
+			(symbol "W25Q128JV_1_1"
 				(pin input line
 					(at -13.97 3.81 0)
 					(length 3.81)
@@ -763,6 +763,12 @@
 							)
 						)
 					)
+				)
+				(pin passive line
+					(at 0 -10.16 90)
+					(length 3.81)
+					(name "EP" (effects (font (size 1.27 1.27))))
+					(number "9" (effects (font (size 1.27 1.27))))
 				)
 			)
 			(embedded_fonts no)
@@ -2530,7 +2536,7 @@
 		)
 	)
 	(symbol
-		(lib_id "gkl_mem:AT25SF081")
+		(lib_id "mimic:W25Q128JV")
 		(at 201.93 148.59 0)
 		(unit 1)
 		(body_style 1)
@@ -3472,4 +3478,5 @@
 	(global_label "FPGA_RESET" (shape input) (at 284.48 124.46 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "53510fc5-f3d2-4672-81fd-87ac6223b6a6") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 284.48 124.46 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(global_label "SPI_CONFIG_SCK" (shape input) (at 201.93 77.47 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "2416f163-b379-4421-afe3-214384667748") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 201.93 77.47 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(global_label "JTAG_TCK" (shape input) (at 209.55 107.95 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "c4f905d7-da97-4935-a1cb-9014ccd4dace") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 209.55 107.95 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(global_label "GND" (shape input) (at 201.93 158.75 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "a25724b6-a782-42e9-b939-7f1d2d081dfe") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 201.93 158.75 0) (hide yes) (effects (font (size 1.27 1.27)))))
 )
