@@ -217,11 +217,11 @@ pub const REG_REQ_SNAPSHOT_HI: u32 = 0x98;
 ///
 /// The window runs from DATA_IN_COUNT to REQ_SNAPSHOT_HI. ONE read of it
 /// gives the free space of the read data channel, the words waiting on the
-/// write data channel, the number of records that wait and the record at
-/// the head of the request FIFO. No address in the window has a side
-/// effect on a read, so the loop pays ONE USB round trip where it used to
-/// pay three, and every fill it then sends is sized by a credit that is
-/// only microseconds old.
+/// write data channel, the card state, the number of records that wait and
+/// the record at the head of the request FIFO. No address in the window
+/// has a side effect on a read, so the loop pays ONE USB round trip where
+/// it used to pay three, and every fill it then sends is sized by a credit
+/// that is only microseconds old.
 pub const REG_STATUS_FIRST: u32 = REG_DATA_IN_COUNT;
 
 /// Words in the status window. See `REG_STATUS_FIRST`.
@@ -241,6 +241,9 @@ pub const STATUS_REQ_COUNT: usize =
 pub const STATUS_REQ: usize = (REG_REQ_SNAPSHOT - REG_STATUS_FIRST) / 4;
 /// Index of word 1 of the record at the head, inside the status window.
 pub const STATUS_REQ_HI: usize = (REG_REQ_SNAPSHOT_HI - REG_STATUS_FIRST) / 4;
+/// Index of CARD_STATE inside the status window. A stream holds the card
+/// in the data state until the host stops it with CMD12.
+pub const STATUS_CARD_STATE: usize = (REG_CARD_STATE - REG_STATUS_FIRST) / 4;
 
 comptime {
     // The record must be the LAST thing the window reads. The pop that

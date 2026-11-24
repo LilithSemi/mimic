@@ -704,8 +704,8 @@ fn printServeStats(io: Io, out: *Io.Writer, stats: serve.Stats, start: Io.Clock.
     // out, and each of these is a chunk whose remaining blocks never went
     // on the link.
     try out.print(
-        "stats: {d} streams cut short by a new record, {d} stalled\n",
-        .{ stats.streams_cut, stats.streams_stalled },
+        "stats: {d} streams cut short by a new record, {d} by an abort, {d} stalled\n",
+        .{ stats.streams_cut, stats.streams_aborted, stats.streams_stalled },
     );
     // A chunk boundary the loop crossed without going back to the request
     // channel. Each one saved a round trip and the idle polls behind it.

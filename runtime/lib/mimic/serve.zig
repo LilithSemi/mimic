@@ -170,6 +170,9 @@ pub const Error = error{
     /// The DATA_IN FIFO did not take the block within the poll limit. The
     /// device stopped draining it.
     DataInFull,
+    /// The card left the data state while a stream was still owed blocks.
+    /// The host stopped the stream with CMD12.
+    StreamAborted,
     /// The write data channel did not hold a whole block within the poll
     /// limit. The record and the channel are out of step, so the bytes of
     /// the block are gone and no guess can replace them.
@@ -371,6 +374,12 @@ pub const Stats = struct {
     /// stops a stream. A number that grows beside READ TIMEOUTS in EVENT
     /// is a card that stopped draining a chunk it was still serving.
     streams_stalled: u64 = 0,
+    /// Streams that stopped because the card left the data state.
+    ///
+    /// The host ends a stream with CMD12 and may send its next read much
+    /// later. Without this the loop pushed the rest of the chunk in that
+    /// gap, and the card threw every one of those blocks away.
+    streams_aborted: u64 = 0,
     /// Times the host model was cleared because the card asked for a
     /// block the model said it held. See `CacheModel`.
     model_resets: u64 = 0,
@@ -578,6 +587,15 @@ pub const Server = struct {
     /// pass answers it. A record that was dropped instead would leave the
     /// host waiting out the whole read timeout.
     held: ?Request = null,
+    /// True while the last status window read found the card in the data
+    /// state.
+    card_in_data: bool = false,
+    /// True once a status window was read after the record of the stream
+    /// that `serveRead` serves. The window reads CARD_STATE before the
+    /// record, so the read that gave the record can still show the state
+    /// from before the CMD18, and only a later read can say the stream
+    /// ended.
+    card_state_fresh: bool = false,
 
     /// True while a record this loop has READ is still on the card.
     ///
@@ -783,6 +801,7 @@ pub const Server = struct {
         // went before it, so the count it gives is never older than the
         // credit this side was carrying.
         self.credit_words = status[sd.STATUS_DATA_IN_COUNT];
+        self.noteCardState(status[sd.STATUS_CARD_STATE]);
     }
 
     /// Extends the sequential prefetch while no new request is pending.
@@ -955,6 +974,10 @@ pub const Server = struct {
         var chunk_end: u64 = end;
         var tag: u8 = request.seq;
         var chunks: u16 = 0;
+        // A stream holds the card in the data state until the host stops
+        // it with CMD12. See `card_state_fresh` for why the read that gave
+        // this record does not count.
+        self.card_state_fresh = false;
         while (lba < chunk_end) {
             // A record must be answered, so this one waits for room. A
             // fill never does: see `appendReadAhead`.
@@ -967,6 +990,10 @@ pub const Server = struct {
             // card has taken a new read.
             if (stream) {
                 const found = self.awaitStreamSpace() catch |e| switch (e) {
+                    Error.StreamAborted => {
+                        self.stats.streams_aborted += 1;
+                        return true;
+                    },
                     // The card took no block of this chunk within the poll
                     // limit and asked for nothing else. The rest of the
                     // chunk is speculative, so it is dropped and counted
@@ -1066,6 +1093,12 @@ pub const Server = struct {
                 }
                 self.held = next_record;
                 self.stats.streams_cut += 1;
+                return true;
+            }
+            // No record yet, but the host stopped the stream. Every block
+            // still owed would go out for nobody.
+            if (self.streamEnded()) {
+                self.stats.streams_aborted += 1;
                 return true;
             }
         }
@@ -1506,6 +1539,7 @@ pub const Server = struct {
             // The count comes back AFTER the card took these blocks, so it
             // is never older than the credit this side was carrying.
             self.credit_words = window[sd.STATUS_DATA_IN_COUNT];
+            self.noteCardState(window[sd.STATUS_CARD_STATE]);
         } else {
             try self.device.writeStreamGroups(groups[0..entries.len]);
             self.stats.round_trips += 1;
@@ -1594,7 +1628,20 @@ pub const Server = struct {
     /// The caller therefore counts the chunk as stalled and goes back to
     /// the request channel. If the card really was waiting, it times out
     /// and the host retries the read, which the loop then answers.
+    fn noteCardState(self: *Server, word: u32) void {
+        const state = word & sd.CARD_STATE_MASK;
+        self.card_in_data = state == @intFromEnum(sd.CardState.data);
+        self.card_state_fresh = true;
+    }
+
+    /// True when a status read taken after the record of this stream
+    /// found the card out of the data state.
+    fn streamEnded(self: *const Server) bool {
+        return self.card_state_fresh and !self.card_in_data;
+    }
+
     fn awaitStreamSpace(self: *Server) !?Request {
+        if (self.streamEnded()) return Error.StreamAborted;
         if (self.credit_words >= BLOCK_WORDS) return null;
         var polls: u32 = 0;
         defer {
@@ -1613,6 +1660,7 @@ pub const Server = struct {
                     status[sd.STATUS_REQ_HI],
                 });
             }
+            if (self.streamEnded()) return Error.StreamAborted;
             if (self.credit_words >= BLOCK_WORDS) {
                 polls += 1;
                 return null;
@@ -1722,6 +1770,10 @@ const FakeDevice = struct {
     /// block that costs ten frames costs a millisecond and a block that
     /// costs five hundred costs a twentieth of a second.
     frames: usize = 0,
+    /// CARD_STATE reads tran once this many blocks were pushed, and data
+    /// before that. While null it always reads data. It models a host that
+    /// sends CMD12 after it read that many blocks.
+    abort_after_blocks: ?usize = null,
 
     fn regWrite(self: *FakeDevice, addr: u32, value: u32) anyerror!void {
         self.frames += 1;
@@ -1866,6 +1918,10 @@ const FakeDevice = struct {
             if (self.req_read < self.req.len) self.req[self.req_read] else 0;
         words[sd.STATUS_REQ_HI] =
             if (self.req_read + 1 < self.req.len) self.req[self.req_read + 1] else 0;
+        const stopped = if (self.abort_after_blocks) |n| self.tags_len >= n else false;
+        words[sd.STATUS_CARD_STATE] = @intFromEnum(
+            if (stopped) sd.CardState.tran else sd.CardState.data,
+        );
     }
 
     /// The one status read of the serve loop.
@@ -2581,6 +2637,32 @@ test "a record that lands mid stream stops the stream and is answered next" {
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     try std.testing.expectEqual(batch + 2 * batch, server.stats.blocks);
     try std.testing.expectEqual(@as(u64, 2), server.stats.round_trips - before);
+}
+
+test "a stream stops when the card leaves the data state" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 128);
+    const image = try openTestImage(tmp.dir, "card.img", 128, false);
+    defer image.file.close(std.testing.io);
+
+    // A chunk of two batches. The host sends CMD12 after the first batch
+    // and no new read yet, so only the card state says the stream ended.
+    const chunk: u16 = 2 * PUSH_BATCH_BLOCKS;
+    const batch: u64 = PUSH_BATCH_BLOCKS;
+    const words = (Request{ .op = 0x01, .blocks = chunk, .lba = 0, .seq = 1 }).words();
+    var fake: FakeDevice = .{
+        .req = &words,
+        .req_count = 1,
+        .abort_after_blocks = PUSH_BATCH_BLOCKS,
+    };
+    var server: Server = .{ .device = fake.device(), .image = image };
+
+    try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try std.testing.expectEqual(batch, server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 1), server.stats.streams_aborted);
+    try std.testing.expectEqual(@as(u64, 0), server.stats.streams_cut);
+    try std.testing.expect(server.held == null);
 }
 
 test "the next chunk of a stream carries on in place and costs no poll" {
