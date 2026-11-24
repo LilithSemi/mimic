@@ -15,6 +15,7 @@ import 'package:rohd/rohd.dart';
 
 import 'hw/sd_block_cache.dart' show sdCacheDefaultLines, sdCacheLinesValid;
 import 'hw/sd_card_fsm.dart' show sdCardCidValueFor;
+import 'boards.dart';
 import 'regs.dart';
 import 'sd_regs.dart';
 import 'soc.dart';
@@ -593,7 +594,7 @@ class MimicGenIpConfig {
   HarborBoard? get board {
     final n = boardName;
     if (targetSpec != null || n == null) return null;
-    return HarborBoard.get(n);
+    return mimicBoard(n);
   }
 
   /// Builds the elaborated SoC for [buildTarget].

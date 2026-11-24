@@ -54,6 +54,7 @@ import 'package:harbor/harbor.dart';
 import 'package:rohd/rohd.dart';
 import 'package:rohd_bridge/rohd_bridge.dart';
 
+import 'boards.dart';
 import 'hw/led_activity.dart';
 import 'hw/byte_lane_cdc_fifo.dart';
 import 'hw/reset_sync.dart';
@@ -353,7 +354,7 @@ HarborFpgaTarget resolveMimicTarget({
   if (board == null) {
     throw ArgumentError('One of board or targetSpec is needed.');
   }
-  final catalog = HarborBoard.get(board);
+  final catalog = mimicBoard(board);
   // Copy every aliased catalog site to the port name the SoC really emits.
   // A --pin of the port name still wins, because userPins is merged last.
   final aliased = <String, String>{};

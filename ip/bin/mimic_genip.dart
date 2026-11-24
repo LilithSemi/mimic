@@ -46,8 +46,8 @@ Future<void> main(List<String> argv) async {
       'board',
       defaultsTo: 'orangecrab-25f',
       help:
-          "Target board from Harbor's HarborBoard catalog "
-          '(${HarborBoard.byName.keys.join(', ')}). Supplies the '
+          "Target board, one of Mimic's own or from Harbor's catalog "
+          '(${[...mimicBoards.keys, ...HarborBoard.byName.keys].join(', ')}). Supplies the '
           'vendor/device/package, the oscillator frequency, the pin sites, '
           'and the program command - so retargeting is one flag, no code '
           'change. --pin overrides individual sites; --target overrides the '

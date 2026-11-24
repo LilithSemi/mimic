@@ -1,6 +1,7 @@
 /// Mimic: SD card emulation over USB for SBCs, FPGAs, and DUTs.
 library;
 
+export 'src/boards.dart';
 export 'src/genip.dart';
 export 'src/regs.dart';
 export 'src/sd_crc.dart';
