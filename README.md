@@ -106,4 +106,12 @@ remains the extensible control plane.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+The hardware source is licensed under CERN-OHL-S-2.0. This covers the
+gateware and its generator in `ip/lib/` and the testbenches in `ip/test/`.
+
+The software is licensed under Apache-2.0. This covers the host runtime
+in `runtime/`, the `mimic_genip` command in `ip/bin/`, the Nix build
+support and the documentation.
+
+[REUSE.toml](REUSE.toml) gives the license of each path. The full texts
+are in [LICENSE-CERN-OHL-S](LICENSE-CERN-OHL-S) and [LICENSE](LICENSE).
