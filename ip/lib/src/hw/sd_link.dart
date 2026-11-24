@@ -87,7 +87,9 @@ const int sdRespKindR2 = 2;
 /// bit of one command to the start bit of the next command, and 8 clocks
 /// for Nrc, from the end bit of a response to the start bit of the next
 /// command. A host that obeys the specification always makes a gap of this
-/// length, so the gate keeps all legal traffic.
+/// length, so the gate keeps all legal traffic. The gate applies after a
+/// command only. The end bit of the card's own response arms the framer at
+/// once.
 const int sdCommandGapClocks = 8;
 
 /// One CRC7 step, polynomial x^7 + x^3 + 1.
@@ -194,8 +196,8 @@ Logic _crc16Step(Logic state, Logic bit, String name) {
 /// leak between frames.
 ///
 /// The framer starts a command only after CMD stays high for
-/// [sdCommandGapClocks] clocks. The specification gives that gap after
-/// every command and every response, so a legal host always makes it.
+/// [sdCommandGapClocks] clocks, or at once after the end bit of the card's
+/// own response.
 ///
 /// A pulse on `resp_start` sends a response back to the host, most
 /// significant bit first. `resp_kind` picks the shape of the frame and the
@@ -388,6 +390,7 @@ class MimicSdLink extends BridgeModule {
     final zeroIdle = Const(0, width: idleWidth);
     final idleGoal = Const(sdCommandGapClocks, width: idleWidth);
     final armed = rxIdle.gte(idleGoal).named('rx_armed');
+    final txLastBit = Logic(name: 'tx_last_bit');
 
     // A frame starts on a low bit while the receiver is idle and armed.
     //
@@ -483,6 +486,11 @@ class MimicSdLink extends BridgeModule {
         ],
         orElse: [rxIdle < zeroIdle],
       ),
+      // The end bit of the card's own response arms the framer at once.
+      // Nrc asks the host for 8 clocks here, but some hosts send the next
+      // command sooner and real cards take it. The card knows where its
+      // own frame ends, so a start bit here cannot be a false start.
+      If(txLastBit, then: [rxIdle < idleGoal]),
       If(
         startBit,
         then: [
@@ -575,6 +583,7 @@ class MimicSdLink extends BridgeModule {
     // bits from the shift register, because the register that the caller
     // gave holds its own CRC7 and its own end bit already.
     final txEndIndex = mux(txLong, txLongEnd, txShortEnd).named('tx_end');
+    txLastBit <= txActive & txCount.eq(txEndIndex);
     final txPayload = mux(
       txLong,
       Const(1),

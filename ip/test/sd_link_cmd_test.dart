@@ -526,7 +526,7 @@ void main() {
     await Simulator.endSimulation();
   });
 
-  test('stays deaf for the whole response and then enforces Nrc', () async {
+  test('stays deaf for the whole response and then frames at once', () async {
     final s = await _setUp();
     final mon = _FrameMonitor(s.dut);
 
@@ -568,29 +568,27 @@ void main() {
     );
 
     // A command that starts in the clock right after the end bit of the
-    // response breaks Nrc. The framer must drop it.
+    // response breaks Nrc. Real cards take it, and some hosts send it, so
+    // the framer takes it too. The card knows where its own frame ends,
+    // so no false start is possible here.
     await s.host.sendCommand(17, 0x00001234);
     await s.host.idle(sdCommandGapClocks);
 
-    expect(
-      mon.frames,
-      isEmpty,
-      reason: 'Nrc runs from the end bit of the response',
-    );
-
-    // The receiver is not stuck. A command after a legal gap still frames.
+    // A command after a legal gap also frames.
     await s.host.sendCommand(8, 0x000001AA);
     await s.host.idle(sdCommandGapClocks);
     await mon.stop();
 
-    expect(mon.frames, hasLength(1), reason: 'the legal command frames');
-    expect(mon.frames.single.index, equals(8), reason: 'CMD8 index');
-    expect(mon.frames.single.arg, equals(0x000001AA), reason: 'CMD8 argument');
-    expect(mon.frames.single.crcOk, isTrue, reason: 'CRC7 accepted');
+    expect(mon.frames, hasLength(2));
+    expect(mon.frames[0].index, equals(17), reason: 'CMD17 index');
+    expect(mon.frames[0].arg, equals(0x00001234), reason: 'CMD17 argument');
+    expect(mon.frames[0].crcOk, isTrue, reason: 'CRC7 accepted');
+    expect(mon.frames[1].index, equals(8), reason: 'CMD8 index');
+    expect(mon.frames[1].crcOk, isTrue, reason: 'CRC7 accepted');
     await Simulator.endSimulation();
   });
 
-  test('stays deaf for a whole R2 and then enforces Nrc', () async {
+  test('stays deaf for a whole R2 and then frames at once', () async {
     final s = await _setUp();
     final mon = _FrameMonitor(s.dut);
 
@@ -650,26 +648,22 @@ void main() {
       reason: 'no frame comes out of the long response the card sent',
     );
 
-    // A command that starts in the clock right after the end bit of the
-    // response breaks Nrc. The framer must drop it.
+    // A command right after the end bit of the 136-bit response frames,
+    // for the reason the R1 test above gives. The gate must take the end
+    // of the long frame from bit 135 and not bit 47.
     await s.host.sendCommand(17, 0x00001234);
     await s.host.idle(sdCommandGapClocks);
 
-    expect(
-      mon.frames,
-      isEmpty,
-      reason: 'Nrc runs from the end bit of the 136-bit response',
-    );
-
-    // The receiver is not stuck. A command after a legal gap still frames.
     await s.host.sendCommand(8, 0x000001AA);
     await s.host.idle(sdCommandGapClocks);
     await mon.stop();
 
-    expect(mon.frames, hasLength(1), reason: 'the legal command frames');
-    expect(mon.frames.single.index, equals(8), reason: 'CMD8 index');
-    expect(mon.frames.single.arg, equals(0x000001AA), reason: 'CMD8 argument');
-    expect(mon.frames.single.crcOk, isTrue, reason: 'CRC7 accepted');
+    expect(mon.frames, hasLength(2));
+    expect(mon.frames[0].index, equals(17), reason: 'CMD17 index');
+    expect(mon.frames[0].arg, equals(0x00001234), reason: 'CMD17 argument');
+    expect(mon.frames[0].crcOk, isTrue, reason: 'CRC7 accepted');
+    expect(mon.frames[1].index, equals(8), reason: 'CMD8 index');
+    expect(mon.frames[1].crcOk, isTrue, reason: 'CRC7 accepted');
     await Simulator.endSimulation();
   });
 
