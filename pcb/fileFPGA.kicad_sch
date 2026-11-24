@@ -3344,7 +3344,7 @@
 	(no_connect (at 33.02 361.95) (uuid "bf826dbd-c711-47ca-b072-ad4d5404152f"))
 	(no_connect (at 33.02 364.49) (uuid "d3a0d304-a53d-402b-bc07-8ca41e0d9dc2"))
 	(no_connect (at 33.02 367.03) (uuid "10ae1a98-84b2-40e6-be1b-e9184a9bc5d2"))
-	(no_connect (at 33.02 369.57) (uuid "b1adfea4-93c2-481d-a7e7-e01f3b611811"))
+	(global_label "SD0_VDD_SENSE" (shape input) (at 33.02 369.57 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "b1adfea4-93c2-481d-a7e7-e01f3b611811") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 33.02 369.57 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(global_label "SD0_DAT3" (shape input) (at 33.02 372.11 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "97c75e49-f474-4482-b633-cf168e891f9b") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 33.02 372.11 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(no_connect (at 33.02 374.65) (uuid "b13d081d-6fd4-4b9d-85da-7caba3b2897e"))
 	(no_connect (at 33.02 377.19) (uuid "ff8dc219-5f7f-4403-ae05-f9624e140512"))
