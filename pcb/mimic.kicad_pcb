@@ -153,6 +153,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "a25cec09-d2a0-409a-8b77-aa33b380695f")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "GRM155R60J106ME15D"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "9a3ecd29-2ca2-458d-ab9c-fbe43159ea8d")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005d1738db/3dd64a09-cda9-4e2b-83b8-7832ed816ac6")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -302,6 +324,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "a6e77fdf-b830-4d9d-b582-d443eb0b05e3")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-073K57L"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "8120f144-2eec-4c6f-971f-ad2b409e0ed8")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/0ac8ab52-9dde-45f5-b2c5-3afd6083f29a")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -442,6 +486,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "3d7f19b3-ccdc-46bf-aeaa-5105fc8b22a9")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0733RL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "6c35ec6c-9559-40ad-9435-a8290fd44aef")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -588,6 +654,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "ed8a1a4c-a51a-43bd-a2a9-503376de70ba")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0733RL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "c71b9ecf-ded1-479f-89f0-46f10d0f4eaa")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005ac0a2a0/0ba65f98-5452-4829-8465-9dff704faa89")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -728,6 +816,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Samsung Electro-Mechanics"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "d7fcaf5e-94eb-483a-8706-d04b88608413")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "CL03C100JA3GNNC"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "305a8d4f-6ed2-4705-bcb9-67a85140370e")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -875,7 +985,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005ea1ff05")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -981,6 +1091,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "4b9b8c32-5f13-420d-a2e5-4a98c2af7563")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0733RL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "95224cdb-9a2f-4cf2-96f5-37f4b00165cc")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -1124,6 +1256,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "d5c1959e-1379-44b5-a37d-d8516716202b")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "GRM155R60J106ME15D"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "2e9752aa-3b73-4373-9069-50ed11b0d298")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -1277,7 +1431,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005ea1ee5b")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -1383,6 +1537,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Samsung Electro-Mechanics"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "b5cccddb-0109-4373-a5cb-752bee73d554")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "CL03C100JA3GNNC"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "e236dd3a-bdd2-4137-8c6f-2a8364e1bb9c")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -1529,6 +1705,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "51cbde23-6e02-487a-b6fa-5c0172a23045")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-071K5L"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "e9a4bfd1-0cff-4e54-8588-94f84980a9e8")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/8fa25439-8092-462b-ae70-1ef1d82dff48")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -1669,6 +1867,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "c1be7805-644e-4440-a8be-df1d674a9ddc")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-07100KL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "c4f45a81-8e63-45e4-987f-b11dccd0b86d")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -1815,6 +2035,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "2752c860-6255-43d5-95d0-661a5d02ed4f")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0733RL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "386c3046-8e7e-4431-a24b-c04ac1189aa1")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005ac0a2a0/fbc9944e-5a6e-4e58-935d-d631a547f192")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -1955,6 +2197,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "ebc1a9c8-0405-4ea6-95f6-246083c81170")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "GRM155R60J106ME15D"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "c763a1f7-df4c-4ae7-850b-c99126f280b3")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -2107,6 +2371,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "637af03b-2fa1-4a94-aa44-756fda8e4d5a")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-074K7L"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "55f30df2-5773-4c84-a66e-5b39fc6433c2")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/87ee5ed5-4c55-4ff1-8bcc-0e408f16ddae")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -2250,6 +2536,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "d4665398-7a75-42b5-8e07-53c5171c0602")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0733RL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "5951c75d-150b-4fe4-9e98-5756b4fa6327")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005ac0a2a0/93227c1c-a92a-4a4c-ad5a-35698e113ca8")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -2390,6 +2698,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "8e80a502-be6a-4fa2-90ad-e670086b5744")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "LQM21PN2R2NGCD"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "4608824a-b481-420d-9f11-358aff71ef04")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -2542,6 +2872,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "d47e3f2e-dfa5-495b-bb54-ec29ab979b80")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "GRM155R60J106ME15D"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "872a493d-7862-4aeb-bf05-05d403eb207e")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005d1738db/8f183bff-8618-4ee7-aa86-8cf571455c7c")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -2691,6 +3043,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "27f86311-f4e8-4505-8643-23ccb304b8cb")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-07360KL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "fe232fe8-f240-4342-9577-9d3488b8b791")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005d1738db/b0618a26-afc3-46dc-856e-903ebf5c1b9d")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -2831,6 +3205,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Texas Instruments"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "ddf7f1ed-d922-4534-af22-2d8c7fbc1a41")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "TLV62569DRLR"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "086f0ac5-8d67-4967-a4b1-633b7d76796d")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -3137,6 +3533,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "cd46917f-28e0-4e64-bed2-631c20d7fba7")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0733RL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "38f45ba9-538f-4992-ad32-c85dd62cec70")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005ac0a2a0/dbcfd4fc-4133-4fe9-b6e4-aa1cc45b0b72")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -3260,6 +3678,28 @@
 			(layer "F.Fab")
 			(hide yes)
 			(uuid "452a664a-22fb-45fe-9b78-a874914e896c")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Mfg" "ams OSRAM"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "29e1bb27-eacb-46a1-b9bd-3f15c88daa90")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "LRTB R48G-P9Q7-1+R7S5-26+N5P-68-ZB"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "516b98d4-7651-42b1-ad28-39494edfdf53")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3415,6 +3855,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Texas Instruments"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "e3614d89-ca5b-450b-8240-dce42fa878a5")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "TLV62569DRLR"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "281f4d5c-cd13-439b-ab57-06f86cc3ac22")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -3721,6 +4183,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "b30ba24b-0a87-44a8-99de-ddb3baf2fc75")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-07120KL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "6e16d35b-4ab4-49ad-861d-f7cc777d2d10")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005d1738db/25a3e33d-96c5-48c4-a7b2-66d41ca6e6ae")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -3861,6 +4345,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "9a9fbead-0081-4170-98dc-3d3d163243ad")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "GRM155R60J106ME15D"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "a77f5427-85d9-4455-9903-cffc47289834")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -4013,6 +4519,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "ea339d04-eac5-4c04-b6f3-ad4b1a21ec5e")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0720RL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "3312888a-98d5-42cd-b3bc-f7bbb1f012c0")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/6e33cb28-f30b-4bfb-9516-65f4f601c847")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -4153,6 +4681,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "3d61aea9-4c8a-40e8-99e9-5c8770bae3f0")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "GRM155R60J106ME15D"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "263d70e0-d9c0-4f8f-8029-3a80c07d9442")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -4305,6 +4855,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "98e46285-4017-4373-9d27-d5a9fafeb474")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0710KL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "f9d27358-dca5-4e58-bf31-a30a7b537e86")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005ac0a2a0/9f4258f5-1f18-4caf-805d-ca19be5d0f02")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -4449,7 +5021,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005ea1f2d2")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -4555,6 +5127,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Hirose"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "7ba3cf23-0250-4f40-8e1d-f62bba954420")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "FH12-16S-0.5SH(55)"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "fcd63a72-64cc-4777-bcac-58994b7ff0c0")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -5026,6 +5620,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "3fed2770-edd2-48e4-aff2-82eff6c59702")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0747KL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "b3e8c2b3-21a2-4e10-bc8a-df284fc0ae70")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005ac0a2a0/5501ffb0-52ad-445f-a5b1-efb00647798a")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -5158,6 +5774,28 @@
 				(font
 					(size 1.27 1.27)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Korean Hroparts Elec"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "968551ce-ca37-4d4d-b398-4fe6968c4b2c")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "TYPE-C-31-M-12"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "f9daa7d8-0e2a-457d-b530-f157c02a0d74")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -5724,6 +6362,28 @@
 				(font
 					(size 1.27 1.27)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Lattice"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "191ea5a1-9ea8-49d4-bb3e-c0ad8db9ac12")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "LFE5U-25F-6BG256C"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "890ccfad-9646-4920-8177-84da3afdc25f")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -8009,6 +8669,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "90949941-3ee8-4c69-be99-6e2481b99ec2")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "LQM21PN2R2NGCD"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "08d17080-655c-42ed-8ff0-b4d890deffee")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005d1738db/86001791-d8cd-4c39-b6d3-2564698b4fdc")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -8158,6 +8840,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "a2383888-d79d-43fe-936c-6dccccd9aaf0")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-07100KL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "63fe395e-48ce-45c1-9231-126cb4c5da0c")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005ac0a2a0/e9e959b0-6250-49ac-aa5e-fb1b58c62f19")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -8301,6 +9005,28 @@
 				)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "b475d728-8fdf-4b53-8e47-0b91236dbe65")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0782KL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "437d422a-6e1a-45de-b0ea-f97629b941cb")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005d1738db/d0bfde7e-5ac8-45eb-85d5-381793f82ad2")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -8441,6 +9167,28 @@
 				(font
 					(size 1 1)
 					(thickness 0.15)
+				)
+			)
+		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "8b012e46-76ae-4b2c-961a-9b2a2c312f7a")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0720RL"
+			(at 0 0 0)
+			(layer "F.SilkS")
+			(hide yes)
+			(uuid "28fd5c7e-f7b6-4c01-bc4d-841e54148ffd")
+			(effects
+				(font
+					(size 1.27 1.27)
 				)
 			)
 		)
@@ -8590,6 +9338,28 @@
 					(thickness 0.15)
 				)
 				(justify mirror)
+			)
+		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "5a520de4-adc1-4e4c-a6ce-57c57d9bca9c")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "GRM155R61A475MEAAD"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "a0f4c2c6-d837-4f2b-8a50-246e91917f0c")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005d1738db/269323f6-0d1a-42a2-93e6-f1343b941dd4")
@@ -9272,6 +10042,28 @@
 				(justify mirror)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "80ff3ac0-5a83-405b-a89f-60f1488ec183")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-075K1L"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "7d29c391-0373-4751-afac-1cbb714dc87c")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/27293d50-34ea-4f9c-80ee-9ef3e9fddc14")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -9596,6 +10388,28 @@
 				(justify mirror)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "928db617-bb71-4e08-b619-851ac3c06749")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0710KL"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "0a83b21b-8f4a-4cf2-addb-03871d6f0d68")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005d1738db/7dc80c69-4f26-475e-ad56-d3b0c22ed920")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -9746,7 +10560,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005ea1f603")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -10037,7 +10851,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/229fb732-bf09-4eb2-8d46-4d882603db01")
-		(attr exclude_from_pos_files)
+		(attr exclude_from_pos_files exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(pad "1" smd circle
 			(at 0 0 180)
@@ -10293,7 +11107,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/f9f17c9a-47e8-49df-bb63-ecb74a716cbd")
-		(attr exclude_from_pos_files)
+		(attr exclude_from_pos_files exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(pad "1" smd circle
 			(at 0 0 180)
@@ -10371,6 +11185,28 @@
 					(thickness 0.15)
 				)
 				(justify mirror)
+			)
+		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "10f740dd-84f3-4d45-80c9-631cf13f9c99")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-075K1L"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "dfed000b-43c1-456e-befd-2ac2f8a16e5b")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/4cc922e2-37ea-4c4c-b983-b4b803e0dc8c")
@@ -11320,7 +12156,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/7caa7090-4a46-4a7b-8efe-14f4f6151c7c")
-		(attr exclude_from_pos_files)
+		(attr exclude_from_pos_files exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(pad "1" smd circle
 			(at 0 0 180)
@@ -11750,7 +12586,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Mfg" "‎Yageo‎"
+		(property "Mfg" "Yageo"
 			(at 0 0 0)
 			(layer "B.SilkS")
 			(hide yes)
@@ -12100,6 +12936,28 @@
 				(justify mirror)
 			)
 		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "7c62b97b-8682-4b9f-9a8a-9ee69f5e7acd")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "GRM155R61A475MEAAD"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "d382f2a5-9808-4a18-b04e-52ec1f204d53")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005d1738db/eab32519-23ab-404c-87f2-1f86b3b10f06")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -12430,7 +13288,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Mfg" "‎Yageo‎"
+		(property "Mfg" "Yageo"
 			(at 0 0 0)
 			(layer "B.SilkS")
 			(hide yes)
@@ -12956,7 +13814,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005ea1f5f9")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -13597,7 +14455,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/c013593b-aaf1-4df9-bf44-c109fd8c73b0")
-		(attr exclude_from_pos_files)
+		(attr exclude_from_pos_files exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(pad "1" smd circle
 			(at 0 0 180)
@@ -14027,6 +14885,28 @@
 				(justify mirror)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "cf593aea-93f4-4f18-a294-4ecd0d3ee5d0")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-071K5L"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "673a1a5a-fae0-4125-9744-c0408f72b023")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/13f7c3dc-c017-43fb-b02d-876cf5bb239d")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -14176,6 +15056,28 @@
 				(justify mirror)
 			)
 		)
+		(property "Mfg" "Murata"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "32444d9f-430a-40c0-89c1-805d174f27fc")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "GRM155R61A475MEAAD"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "83b1eb28-b515-4289-b2cc-b49dceb5c0c9")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005d1738db/6912cf95-0b46-4ca1-8a41-6254f35cf926")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -14320,6 +15222,28 @@
 					(thickness 0.15)
 				)
 				(justify mirror)
+			)
+		)
+		(property "Mfg" "onsemi"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "5e11b5e6-6a1b-42a9-aa0b-1c00a6f9199b")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "NCP115CMX250TCG"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "686ad0b8-7122-4396-aeb5-2e4b8430c701")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005d1738db/5efa294a-2eb4-47c8-8902-9922509aa876")
@@ -14800,7 +15724,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005ea1ff0f")
-		(attr smd)
+		(attr smd exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -15440,7 +16364,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Mfg" "‎Yageo‎"
+		(property "Mfg" "Yageo"
 			(at 0 0 0)
 			(layer "B.SilkS")
 			(hide yes)
@@ -15641,7 +16565,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Mfg" "Winbond Electronics-"
+		(property "Mfg" "Winbond Electronics"
 			(at 0 0 0)
 			(layer "B.SilkS")
 			(hide yes)
@@ -16056,6 +16980,28 @@
 				(justify mirror)
 			)
 		)
+		(property "Mfg" "Yageo"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "d16e083e-01d2-4bd8-afa9-9543089448fe")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "PN" "RC0201FR-0710KL"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "4593e251-0f46-4fc5-99c3-8730fa7ae57b")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(path "/00000000-0000-0000-0000-00005ab8acb7/7f19cba8-2f13-483b-a362-9d2953912285")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -16206,7 +17152,7 @@
 			)
 		)
 		(path "/00000000-0000-0000-0000-00005abc9a87/d95a8b6c-f003-41cc-90a7-1251fb7fd563")
-		(attr exclude_from_pos_files)
+		(attr exclude_from_pos_files exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(pad "1" smd circle
 			(at 0 0 180)
