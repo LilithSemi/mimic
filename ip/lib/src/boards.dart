@@ -15,8 +15,9 @@ const HarborBoard mimicV1Board = HarborBoard(
   oscillatorHz: 48000000,
   pins: {
     'clk': 'K16 LVCMOS33',
-    // The user button, active low.
-    'rst_n': 'B11 LVCMOS33',
+    // The user button, active low. It also drives PROGRAMN, the way the
+    // OrangeCrab wires it, so a long press reloads the configuration.
+    'rst_n': 'M8 LVCMOS33',
     // Configuration flash. The clock comes from USRMCLK and has no pad.
     'spi_cs_n': 'R8 LVCMOS33',
     'spi_io[0]': 'T8 LVCMOS33',
