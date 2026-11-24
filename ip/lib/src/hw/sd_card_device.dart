@@ -405,10 +405,49 @@ class MimicSdCardDevice extends BridgeModule {
     // block count starts crossing after both entries are committed, but it
     // does not impose an order on the two FIFO synchronisers. The read path
     // therefore also waits for this tag channel to become nonempty.
+    //
+    // The head of the tag channel goes through a one-entry register first.
+    // The FIFO computes its empty flag and its head from the read pointer,
+    // and that path into the read path decisions was the longest path of
+    // the SD clock domain at 50 MHz. The register costs one clock per block.
+    final tagTake = Logic(name: 'tag_head_take');
+    final headValid = Logic(name: 'tag_head_valid');
+    final headTag = Logic(name: 'tag_head_tag', width: sdRequestSeqBits);
+    final headFillLba = Logic(
+      name: 'tag_head_fill_lba',
+      width: sdCommandArgBits,
+    );
+    final headFillValid = Logic(name: 'tag_head_fill_valid');
+    final tagPop = (~input('data_tag_empty') & (~headValid | tagTake)).named(
+      'tag_fifo_pop',
+    );
+    Sequential(
+      clk,
+      reset: reset,
+      resetValues: {
+        headValid: Const(0),
+        headTag: Const(sdRequestSeqNone, width: sdRequestSeqBits),
+        headFillLba: Const(0, width: sdCommandArgBits),
+        headFillValid: Const(0),
+      },
+      [
+        If(tagTake, then: [headValid < Const(0)]),
+        If(
+          tagPop,
+          then: [
+            headValid < Const(1),
+            headTag < input('data_tag'),
+            headFillLba < input('data_fill_lba'),
+            headFillValid < input('data_fill_valid'),
+          ],
+        ),
+      ],
+    );
+    final headEmpty = (~headValid).named('tag_head_empty');
     final blockTag = mux(
-      input('data_tag_empty'),
+      headValid,
+      headTag,
       Const(sdRequestSeqNone, width: sdRequestSeqBits),
-      input('data_tag'),
     ).named('data_tag_value');
 
     // The fill address travels with the tag. An EMPTY channel carries no
@@ -416,12 +455,13 @@ class MimicSdCardDevice extends BridgeModule {
     // is a block nobody can place and the card throws it away, which is
     // what it has always done with an untagged block.
     final blockFillLba = mux(
-      input('data_tag_empty'),
+      headValid,
+      headFillLba,
       Const(0, width: sdCommandArgBits),
-      input('data_fill_lba'),
     ).named('data_fill_lba_value');
-    final blockFillValid = (~input('data_tag_empty') & input('data_fill_valid'))
-        .named('data_fill_valid_value');
+    final blockFillValid = (headValid & headFillValid).named(
+      'data_fill_valid_value',
+    );
 
     // The capacity register is declared before both consumers so each
     // submodule input has a direct internal driver. Do not route one
@@ -448,12 +488,13 @@ class MimicSdCardDevice extends BridgeModule {
     readPath.input('cmd_busy').srcConnection! <= link.output('resp_busy');
     readPath.input('data_word').srcConnection! <= input('data_word');
     readPath.input('data_empty').srcConnection! <= input('data_empty');
-    readPath.input('block_tag_empty').srcConnection! <= input('data_tag_empty');
+    readPath.input('block_tag_empty').srcConnection! <= headEmpty;
     readPath.input('blocks_pushed').srcConnection! <= blocksPushed;
     readPath.input('block_tag').srcConnection! <= blockTag;
     // One tag leaves the tag channel for each block the card takes. See
     // the comment above [blockTag].
-    output('data_tag_pop') <= readPath.output('block_take');
+    tagTake <= readPath.output('block_take') & headValid;
+    output('data_tag_pop') <= tagPop;
     readPath.input('tx_next').srcConnection! <= link.output('dat_tx_next');
     readPath.input('tx_done').srcConnection! <= link.output('dat_tx_done');
     readPath.input('multi').srcConnection! <= fsm.output('read_multi');
