@@ -2155,7 +2155,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -2180,7 +2180,7 @@
 				)
 			)
 		)
-		(property "Footprint" "gkl_conn:FTSH-105-XX-X-DV"
+		(property "Footprint" "Connector:Tag-Connect_TC2050-IDC-NL_2x05_P1.27mm_Vertical"
 			(at 266.7 95.25 0)
 			(hide yes)
 			(show_name no)
@@ -2212,7 +2212,7 @@
 				)
 			)
 		)
-		(property "PN" "FTSH-105-01-F-DV-K-TR"
+		(property "PN" "~"
 			(at 266.7 95.25 0)
 			(hide yes)
 			(show_name no)
@@ -2223,7 +2223,7 @@
 				)
 			)
 		)
-		(property "Mfg" "Samtec Inc."
+		(property "Mfg" "~"
 			(at 266.7 95.25 0)
 			(hide yes)
 			(show_name no)
