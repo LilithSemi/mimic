@@ -104,11 +104,10 @@ const int mimicClockHz = 48000000;
 
 /// Highest SD clock rate this card advertises and accepts, in Hz.
 ///
-/// The card reports default speed only. SD default speed has a 25 MHz limit,
-/// and the SG2000 boot ROM changes between 6 MHz and 25 MHz during boot. The
-/// FPGA timing constraint must cover the higher rate instead of treating this
-/// host-supplied clock as another 48 MHz system clock.
-const int mimicSdClockMaxHz = 25000000;
+/// A board build offers the high speed access mode, which has a 50 MHz
+/// limit. The FPGA timing constraint must cover that rate instead of
+/// treating this host-supplied clock as another 48 MHz system clock.
+const int mimicSdClockMaxHz = 50000000;
 
 /// Name of the SoC clock domain the whole design runs in.
 ///
@@ -566,8 +565,9 @@ HarborSoC buildMimicSoc({
       manufactureMonth: manufactureMonth,
     ),
     cacheLines: cacheLines,
-    // The split ports of a test build keep the 1-bit bus.
+    // The split ports of a test build keep the 1-bit bus at default speed.
     busWidth: ownPads ? mimicSdBoardBusWidth : 1,
+    highSpeed: ownPads,
   );
   soc.addSubModule(card);
 
@@ -669,6 +669,8 @@ HarborSoC buildMimicSoc({
           ? datLevels[i]
           : Const(1),
     MimicDbgPins.clkPad: soc.input(mimicSdClkPinName),
+    MimicDbgPins.busWide: card.output('bus_wide'),
+    MimicDbgPins.highSpeed: card.output('high_speed'),
   };
   final pinSynced = <Logic>[];
   for (var i = 0; i < MimicDbgPins.width; i++) {

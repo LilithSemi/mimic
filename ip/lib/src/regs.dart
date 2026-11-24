@@ -538,8 +538,14 @@ class MimicDbgPins {
   /// Bit 8: the SD clock pad level.
   static const int clkPad = 8;
 
+  /// Bit 9: the host set the 4-bit bus.
+  static const int busWide = 9;
+
+  /// Bit 10: the high speed access mode is in force.
+  static const int highSpeed = 10;
+
   /// Number of bits in the field.
-  static const int width = 9;
+  static const int width = 11;
 }
 
 /// CTRL register bits.

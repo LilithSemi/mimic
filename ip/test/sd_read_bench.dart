@@ -124,6 +124,9 @@ class SdReadBridge extends BridgeModule {
   /// Number of SD data lines on the card under test.
   final int busWidth;
 
+  /// True when the card under test offers the high speed access mode.
+  final bool highSpeed;
+
   SdReadBridge({
     this.breakDataCrossing = false,
     this.breakWriteCrossing = false,
@@ -133,12 +136,13 @@ class SdReadBridge extends BridgeModule {
     int streamBlocks = sdStreamRecordBlocks,
     this.cacheLines = sdCacheDefaultLines,
     this.busWidth = 1,
+    this.highSpeed = false,
     String name = 'read_bridge',
   }) : super(
          // The line count changes the shape of the bridge, so two benches
          // of different cache sizes are two definitions. The name is
          // reserved, so one name for both would make ROHD refuse to emit.
-         '${breakWriteCrossing ? 'ReadBridgeWriteTorn' : (breakDataCrossing ? 'ReadBridgeTorn' : (forceTagFull ? 'ReadBridgeTagFull' : 'ReadBridge'))}L${cacheLines}W$busWidth',
+         '${breakWriteCrossing ? 'ReadBridgeWriteTorn' : (breakDataCrossing ? 'ReadBridgeTorn' : (forceTagFull ? 'ReadBridgeTagFull' : 'ReadBridge'))}L${cacheLines}W$busWidth${highSpeed ? 'HS' : ''}',
          name: name,
          reserveDefinitionName: true,
        ) {
@@ -185,6 +189,7 @@ class SdReadBridge extends BridgeModule {
       streamBlocks: streamBlocks,
       cacheLines: cacheLines,
       busWidth: busWidth,
+      highSpeed: highSpeed,
     );
     addSubModule(card);
 
@@ -550,6 +555,7 @@ Future<SdReadBench> setUpSdReadBench({
   bool parkSdClock = false,
   int capacityBlocks = sdCardCapacityBlocks,
   int busWidth = 1,
+  bool highSpeed = false,
 }) async {
   final bridge = SdReadBridge(
     breakDataCrossing: breakDataCrossing,
@@ -560,6 +566,7 @@ Future<SdReadBench> setUpSdReadBench({
     streamBlocks: streamBlocks,
     cacheLines: cacheLines,
     busWidth: busWidth,
+    highSpeed: highSpeed,
   );
   final sdClk = Logic(name: 'sd_clk');
   final reset = Logic(name: 'reset');

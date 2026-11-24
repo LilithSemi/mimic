@@ -287,16 +287,20 @@ final BigInt sdSsrBusWidth4Bit = BigInt.two << (sdSsrBytes * 8 - 2);
 
 /// The switch status that CMD6 reports, with every group at its default.
 ///
-/// The card offers no function beyond the default of any group, so the
-/// support map of every group names function 0 alone. The constructor of
-/// [MimicSdCardFsm] checks that, because a status that named the high
-/// speed access mode would invite the host to clock the card at 50 MHz
-/// and the datapath answers at the default speed alone.
+/// The support map of every group names function 0 alone. A card built
+/// with the high speed access mode uses
+/// [sdCardSwitchStatusHighSpeedBytes] in place of this value.
 ///
 /// The selection nibbles of this value are the default function. The
 /// decode replaces them with the answer for the groups the host asked
 /// about, so the value here is the base and not the whole answer.
 final List<int> sdCardSwitchStatusBytes = sdSwitchStatus();
+
+/// The switch status of a card with the high speed access mode: group 1
+/// supports functions 0 and 1.
+final List<int> sdCardSwitchStatusHighSpeedBytes = sdSwitchStatus(
+  group1Support: sdSwitchSupportDefaultOnly | (1 << sdSwitchFunctionHighSpeed),
+);
 
 /// The SCR register of this card.
 ///
@@ -544,6 +548,18 @@ class SdDecodeInputs {
   /// CMD0 clears it, because a card in idle uses the 1-bit bus.
   final Logic busWide;
 
+  /// High while the high speed access mode is in force, one bit wide.
+  /// CMD0 clears it.
+  final Logic highSpeed;
+
+  /// The access mode that a CMD6 switch asks for, one bit wide. It takes
+  /// effect at the end of the switch status frame while [highSpeedArm] is
+  /// high.
+  final Logic highSpeedNext;
+
+  /// High from a CMD6 switch to the end of its status frame, one bit wide.
+  final Logic highSpeedArm;
+
   /// Makes the input set of one decode.
   const SdDecodeInputs({
     required this.index,
@@ -560,6 +576,9 @@ class SdDecodeInputs {
     required this.cardEnable,
     required this.regReady,
     required this.busWide,
+    required this.highSpeed,
+    required this.highSpeedNext,
+    required this.highSpeedArm,
   });
 }
 
@@ -741,6 +760,13 @@ class MimicSdCardFsm extends BridgeModule {
   /// 4-bit bus. A card without them refuses that width with ERROR.
   final bool wideBus;
 
+  /// True when the card offers the high speed access mode through CMD6.
+  ///
+  /// A switch to it takes effect after the switch status frame ends, and
+  /// the `high_speed` output then tells the pins to launch on the rising
+  /// edge. CMD0 returns the card to the default speed.
+  final bool highSpeed;
+
   /// Makes the card state machine.
   ///
   /// [decode] replaces the command set. It defaults to the command set of
@@ -754,6 +780,7 @@ class MimicSdCardFsm extends BridgeModule {
     SdCommandDecode? decode,
     BigInt? cid,
     this.wideBus = false,
+    this.highSpeed = false,
   }) : cid = cid ?? sdCardCidValue,
        super('MimicSdCardFsm', name: name ?? 'sd_card_fsm') {
     if (this.cid.bitLength > sdResponseRegBits) {
@@ -1012,6 +1039,13 @@ class MimicSdCardFsm extends BridgeModule {
     // High while the 4-bit bus is in use. The link reads it.
     addOutput('bus_wide');
 
+    // A pulse of one clock at the end bit of each data frame the link
+    // sends. A CMD6 switch takes effect on the first one after it.
+    createPort('dat_frame_done', PortDirection.input);
+
+    // High while the high speed access mode is in force. The pins read it.
+    addOutput('high_speed');
+
     final clk = input('clk');
     final reset = input('reset');
 
@@ -1038,6 +1072,9 @@ class MimicSdCardFsm extends BridgeModule {
     final opCondPoll = Logic(name: 'op_cond_poll_reg', width: sdOpCondPollBits);
     final rca = Logic(name: 'rca_reg', width: sdRcaBits);
     final busWide = Logic(name: 'bus_wide_reg');
+    final highSpeedReg = Logic(name: 'high_speed_reg');
+    final highSpeedNext = Logic(name: 'high_speed_next_reg');
+    final highSpeedArm = Logic(name: 'high_speed_arm_reg');
 
     // The start of a block read. The module owns both, because the pulse
     // has to be one clock wide and a decode holds no state of its own.
@@ -1093,6 +1130,9 @@ class MimicSdCardFsm extends BridgeModule {
         cardEnable: input('card_enable'),
         regReady: input('reg_ready'),
         busWide: busWide,
+        highSpeed: highSpeedReg,
+        highSpeedNext: highSpeedNext,
+        highSpeedArm: highSpeedArm,
       ),
     );
 
@@ -1231,6 +1271,9 @@ class MimicSdCardFsm extends BridgeModule {
         opCondPoll: Const(0, width: sdOpCondPollBits),
         rca: Const(0, width: sdRcaBits),
         busWide: Const(0),
+        highSpeedReg: Const(0),
+        highSpeedNext: Const(0),
+        highSpeedArm: Const(0),
         readStartReg: Const(0),
         readLbaReg: Const(0, width: sdCommandArgBits),
         readMultiReg: Const(0),
@@ -1255,6 +1298,12 @@ class MimicSdCardFsm extends BridgeModule {
         // The return to idle is a pulse of one clock as well.
         goIdleReg < Const(0),
         If(respGo, then: [respPending < Const(0)]),
+        // A CMD6 switch takes effect at the end of its status frame, so the
+        // frame itself goes out with the timing the host expects.
+        If(
+          highSpeedArm & input('dat_frame_done'),
+          then: [highSpeedReg < highSpeedNext, highSpeedArm < Const(0)],
+        ),
         // The write moved from taking the block to programming it. This
         // branch comes FIRST so that the end of a write below beats it: a
         // write that ends on the same clock takes the card to tran and not
@@ -1377,6 +1426,7 @@ class MimicSdCardFsm extends BridgeModule {
     output('reg_bytes') <= regBytesReg;
     output('go_idle') <= goIdleReg;
     output('bus_wide') <= mux(reset, Const(0), busWide);
+    output('high_speed') <= mux(reset, Const(0), highSpeedReg);
   }
 
   /// The command set of the card.
@@ -1613,11 +1663,9 @@ class MimicSdCardFsm extends BridgeModule {
     //
     // Bit 31 of the argument picks the mode: 0 is CHECK, which asks what
     // the card supports, and 1 is SWITCH, which asks the card to change
-    // function. THIS DECODE READS NEITHER MODE, and that is correct here.
-    // The card supports the default function of every group and nothing
-    // else, so a SWITCH can only ever grant the function that is already
-    // in force. The answer and the behaviour of the card are therefore the
-    // same in both modes, and there is nothing for a mode bit to change.
+    // function. Both modes give the same answer. Only a SWITCH that the
+    // card grants in every group changes the access mode of group 1, and
+    // the change takes effect at the end of the status frame.
     //
     // The card stays in TRAN through the frame, for the reason ACMD51
     // gives above.
@@ -1641,12 +1689,11 @@ class MimicSdCardFsm extends BridgeModule {
     // The selection nibble that each group gets in the answer.
     //
     // The host names one function for each group in the low
-    // sdSwitchGroups nibbles of the argument, group 1 lowest. This card
-    // grants function 0 of every group and refuses every other, so the
-    // answer for a group is 0 when the host asked for function 0 or for
-    // the no-change value 0xF, and 0xF when the host asked for anything
-    // else. A host reads that 0xF as the card telling it that the function
-    // is not there.
+    // sdSwitchGroups nibbles of the argument, group 1 lowest. A group
+    // answers the function the host asked for when the card has it, the
+    // function in force for the no-change value 0xF, and 0xF for a
+    // function the card does not have. Only group 1 has a second function,
+    // the high speed access mode, and only when [highSpeed] is true.
     //
     // The nibbles go into the value from group 6 down to group 1, which is
     // the order of the status: group 1 sits at the BOTTOM of the selection
@@ -1655,37 +1702,59 @@ class MimicSdCardFsm extends BridgeModule {
       sdSwitchFunctionDefault,
       width: sdSwitchGroupBits,
     );
+    final selectHighSpeed = Const(
+      sdSwitchFunctionHighSpeed,
+      width: sdSwitchGroupBits,
+    );
     final selectMissing = Const(
       sdSwitchSelectNotSupported,
       width: sdSwitchGroupBits,
     );
     final noChange = Const(sdSwitchArgNoChange, width: sdSwitchGroupBits);
+    Logic askedOf(int group) => inputs.arg
+        .slice(group * sdSwitchGroupBits - 1, (group - 1) * sdSwitchGroupBits)
+        .named('switch_arg_group$group');
+    final asked1 = askedOf(1);
+    final asksHighSpeed = (highSpeed ? asked1.eq(selectHighSpeed) : Const(0))
+        .named('switch_asks_high_speed');
+    final grantedOf = <int, Logic>{
+      for (var group = 1; group <= sdSwitchGroups; group++)
+        group:
+            (askedOf(group).eq(selectDefault) |
+                    askedOf(group).eq(noChange) |
+                    (group == 1 ? asksHighSpeed : Const(0)))
+                .named('switch_granted_group$group'),
+    };
+    final current1 = mux(inputs.highSpeed, selectHighSpeed, selectDefault);
     final selections = <Logic>[
       for (var group = sdSwitchGroups; group >= 1; group--)
-        () {
-          final asked = inputs.arg
-              .slice(
-                group * sdSwitchGroupBits - 1,
-                (group - 1) * sdSwitchGroupBits,
-              )
-              .named('switch_arg_group$group');
-          final granted = (asked.eq(selectDefault) | asked.eq(noChange)).named(
-            'switch_granted_group$group',
-          );
-          return mux(
-            granted,
-            selectDefault,
-            selectMissing,
-          ).named('switch_sel_group$group');
-        }(),
+        mux(
+          grantedOf[group]!,
+          group == 1
+              ? mux(asked1.eq(noChange), current1, asked1)
+              : selectDefault,
+          selectMissing,
+        ).named('switch_sel_group$group'),
     ];
+    var allGranted = grantedOf[1]!;
+    for (var group = 2; group <= sdSwitchGroups; group++) {
+      allGranted = allGranted & grantedOf[group]!;
+    }
+    final switchAccessMode =
+        (sendSwitch &
+                inputs.arg[sdSwitchModeBit] &
+                allGranted &
+                ~asked1.eq(noChange))
+            .named('switch_access_mode');
 
     // The base status, with the selection field cut out of it and the
     // nibbles above put in its place. The two constant parts come from the
     // bit numbers of the specification, so a field that moves takes both
     // slices with it.
     final switchBase = Const(
-      sdRegisterToBigInt(sdCardSwitchStatusBytes),
+      sdRegisterToBigInt(
+        highSpeed ? sdCardSwitchStatusHighSpeedBytes : sdCardSwitchStatusBytes,
+      ),
       width: sdSwitchStatusBits,
     );
     final switchStatus = [
@@ -1963,6 +2032,22 @@ class MimicSdCardFsm extends BridgeModule {
           then: [inputs.busWide < asks4Bit],
           orElse: [
             If(isCmd0, then: [inputs.busWide < Const(0)]),
+          ],
+        ),
+        If(
+          switchAccessMode,
+          then: [
+            inputs.highSpeedNext < asksHighSpeed,
+            inputs.highSpeedArm < Const(1),
+          ],
+          orElse: [
+            If(
+              isCmd0,
+              then: [
+                inputs.highSpeed < Const(0),
+                inputs.highSpeedArm < Const(0),
+              ],
+            ),
           ],
         ),
       ],

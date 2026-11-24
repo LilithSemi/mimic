@@ -263,7 +263,8 @@ pub const REG_DBG_READ_DROP: u32 = 0xA4;
 /// DBG_READ_ABORT: RO. Reads stopped by the SD host or disabled runtime.
 pub const REG_DBG_READ_ABORT: u32 = 0xA8;
 /// DBG_PINS: RO. SD pad levels and card drive. Bit 0 CMD pad, 1 CMD OE,
-/// 2 CMD out, 3 DAT0 pad, 4 DAT OE, 7..5 DAT3..DAT1 pads, 8 CLK pad.
+/// 2 CMD out, 3 DAT0 pad, 4 DAT0 OE, 7..5 DAT3..DAT1 pads, 8 CLK pad,
+/// 9 4-bit bus set, 10 high speed in force.
 pub const REG_DBG_PINS: u32 = 0xAC;
 
 /// The bits of CARD_STATE that hold the state. The other bits read 0.

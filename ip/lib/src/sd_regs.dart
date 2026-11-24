@@ -508,9 +508,14 @@ const int sdSwitchMaxCurrentMa = 100;
 ///
 /// Every argument outside its field throws, because a value that does not
 /// fit would change a different field.
+///
+/// [group1Support] replaces the support map of group 1. A card with the
+/// high speed access mode gives `1 << sdSwitchFunctionHighSpeed` there as
+/// well as the default.
 List<int> sdSwitchStatus({
   int maxCurrentMa = sdSwitchMaxCurrentMa,
   List<int> selections = const [0, 0, 0, 0, 0, 0],
+  int group1Support = sdSwitchSupportDefaultOnly,
 }) {
   _checkRange(
     maxCurrentMa,
@@ -543,8 +548,8 @@ List<int> sdSwitchStatus({
     maxCurrentMa & 0xFF,
     // Bits 495 to 400: the support map of group 6 down to group 1.
     for (var group = sdSwitchGroups; group >= 1; group--) ...[
-      (sdSwitchSupportDefaultOnly >> 8) & 0xFF,
-      sdSwitchSupportDefaultOnly & 0xFF,
+      ((group == 1 ? group1Support : sdSwitchSupportDefaultOnly) >> 8) & 0xFF,
+      (group == 1 ? group1Support : sdSwitchSupportDefaultOnly) & 0xFF,
     ],
     // Bits 399 to 376: the selection nibble of group 6 down to group 1.
     // Two groups share one byte, so the loop steps down in pairs.

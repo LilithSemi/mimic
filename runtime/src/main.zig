@@ -282,11 +282,12 @@ fn cmdInfo(device: *Device, out: *Io.Writer) !void {
     try out.print("CARD_STATE: {s}\n", .{card.name()});
     const pins = words[sd.REG_DBG_PINS / 4];
     try out.print(
-        "PINS: cmd={d} cmd_oe={d} cmd_out={d} dat0={d} dat_oe={d} dat1..3={d}{d}{d} clk={d}\n",
+        "PINS: cmd={d} cmd_oe={d} cmd_out={d} dat0={d} dat_oe={d} dat1..3={d}{d}{d} clk={d} wide={d} hs={d}\n",
         .{
-            pins & 1,        (pins >> 1) & 1, (pins >> 2) & 1,
-            (pins >> 3) & 1, (pins >> 4) & 1, (pins >> 5) & 1,
-            (pins >> 6) & 1, (pins >> 7) & 1, (pins >> 8) & 1,
+            pins & 1,        (pins >> 1) & 1,  (pins >> 2) & 1,
+            (pins >> 3) & 1, (pins >> 4) & 1,  (pins >> 5) & 1,
+            (pins >> 6) & 1, (pins >> 7) & 1,  (pins >> 8) & 1,
+            (pins >> 9) & 1, (pins >> 10) & 1,
         },
     );
 

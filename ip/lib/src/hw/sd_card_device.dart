@@ -91,6 +91,9 @@ class MimicSdCardDevice extends BridgeModule {
   /// disagree.
   final int busWidth;
 
+  /// True when the card offers the high speed access mode through CMD6.
+  final bool highSpeed;
+
   /// Makes the card personality.
   ///
   /// [decode] replaces the command set of [MimicSdCardFsm]. It defaults to
@@ -122,6 +125,7 @@ class MimicSdCardDevice extends BridgeModule {
 
   MimicSdCardDevice({
     this.busWidth = 1,
+    this.highSpeed = false,
     String? name,
     SdCommandDecode? decode,
     BigInt? cid,
@@ -240,6 +244,9 @@ class MimicSdCardDevice extends BridgeModule {
     addOutput('sd_dat_out', width: busWidth);
     addOutput('sd_dat_oe', width: busWidth);
     addOutput('card_state', width: sdCardStateBits);
+    // The bus mode the host set, for DBG_PINS.
+    addOutput('bus_wide');
+    addOutput('high_speed');
 
     // The bring-up counters, published as GRAY CODES. Each one counts in
     // this clock domain, which the host owns and stops, so the SoC cannot
@@ -276,6 +283,7 @@ class MimicSdCardDevice extends BridgeModule {
       decode: decode,
       cid: cid,
       wideBus: busWidth > 1,
+      highSpeed: highSpeed,
     );
     addSubModule(fsm);
 
@@ -316,13 +324,26 @@ class MimicSdCardDevice extends BridgeModule {
         datOe < link.output('dat_oe'),
       ],
     );
+    // In the high speed access mode the card launches on the rising edge.
+    // The link outputs already change on the rising edge, so the pins take
+    // them directly. The mode changes only between frames, while every
+    // output rests at the same level in both paths.
+    Logic pick(Logic negedgeValue, String linkPort) => highSpeed
+        ? mux(fsm.output('high_speed'), link.output(linkPort), negedgeValue)
+        : negedgeValue;
     // Hold the external bus released while reset stands. This also covers a
     // clock that has not produced its first falling edge yet.
-    output('sd_cmd_out') <= mux(reset, Const(1), cmdOut);
-    output('sd_cmd_oe') <= mux(reset, Const(0), cmdOe);
+    output('sd_cmd_out') <= mux(reset, Const(1), pick(cmdOut, 'cmd_out'));
+    output('sd_cmd_oe') <= mux(reset, Const(0), pick(cmdOe, 'cmd_oe'));
     output('sd_dat_out') <=
-        mux(reset, Const(1, width: busWidth, fill: true), datOut);
-    output('sd_dat_oe') <= mux(reset, Const(0, width: busWidth), datOe);
+        mux(
+          reset,
+          Const(1, width: busWidth, fill: true),
+          pick(datOut, 'dat_out'),
+        );
+    output('sd_dat_oe') <=
+        mux(reset, Const(0, width: busWidth), pick(datOe, 'dat_oe'));
+    fsm.input('dat_frame_done').srcConnection! <= link.output('dat_tx_done');
 
     // The command path, link to state machine. The four signals belong to
     // one clock: `cmd_valid` is a pulse of one clock and the other three
@@ -806,6 +827,8 @@ class MimicSdCardDevice extends BridgeModule {
     fsm.input('num_blocks').srcConnection! <= numBlocksReg;
 
     output('card_state') <= fsm.output('card_state');
+    output('bus_wide') <= fsm.output('bus_wide');
+    output('high_speed') <= fsm.output('high_speed');
 
     // The bring-up counters.
     //
