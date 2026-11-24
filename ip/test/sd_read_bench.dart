@@ -121,6 +121,9 @@ class SdReadBridge extends BridgeModule {
   /// Number of lines in the block cache of the card under test.
   final int cacheLines;
 
+  /// Number of SD data lines on the card under test.
+  final int busWidth;
+
   SdReadBridge({
     this.breakDataCrossing = false,
     this.breakWriteCrossing = false,
@@ -129,12 +132,13 @@ class SdReadBridge extends BridgeModule {
     int writeTimeoutClocks = sdTestWriteTimeoutClocks,
     int streamBlocks = sdStreamRecordBlocks,
     this.cacheLines = sdCacheDefaultLines,
+    this.busWidth = 1,
     String name = 'read_bridge',
   }) : super(
          // The line count changes the shape of the bridge, so two benches
          // of different cache sizes are two definitions. The name is
          // reserved, so one name for both would make ROHD refuse to emit.
-         '${breakWriteCrossing ? 'ReadBridgeWriteTorn' : (breakDataCrossing ? 'ReadBridgeTorn' : (forceTagFull ? 'ReadBridgeTagFull' : 'ReadBridge'))}L$cacheLines',
+         '${breakWriteCrossing ? 'ReadBridgeWriteTorn' : (breakDataCrossing ? 'ReadBridgeTorn' : (forceTagFull ? 'ReadBridgeTagFull' : 'ReadBridge'))}L${cacheLines}W$busWidth',
          name: name,
          reserveDefinitionName: true,
        ) {
@@ -148,15 +152,15 @@ class SdReadBridge extends BridgeModule {
     createPort('wb_dat', PortDirection.input, width: 32);
     createPort('wb_sel', PortDirection.input, width: 4);
     createPort('sd_cmd_in', PortDirection.input);
-    createPort('sd_dat_in', PortDirection.input);
+    createPort('sd_dat_in', PortDirection.input, width: busWidth);
     createPort('num_blocks', PortDirection.input, width: sdCommandArgBits);
     createPort('tag_visible', PortDirection.input);
     addOutput('wb_ack');
     addOutput('wb_miso', width: 32);
     addOutput('sd_cmd_out');
     addOutput('sd_cmd_oe');
-    addOutput('sd_dat_out');
-    addOutput('sd_dat_oe');
+    addOutput('sd_dat_out', width: busWidth);
+    addOutput('sd_dat_oe', width: busWidth);
     addOutput('card_state', width: sdCardStateBits);
     // The push into the acknowledge channel, brought out so that a test can
     // see whether a write of WRITE_ACK reached the channel at all. The
@@ -180,6 +184,7 @@ class SdReadBridge extends BridgeModule {
       writeTimeoutClocks: writeTimeoutClocks,
       streamBlocks: streamBlocks,
       cacheLines: cacheLines,
+      busWidth: busWidth,
     );
     addSubModule(card);
 
@@ -544,6 +549,7 @@ Future<SdReadBench> setUpSdReadBench({
   int cacheLines = sdCacheDefaultLines,
   bool parkSdClock = false,
   int capacityBlocks = sdCardCapacityBlocks,
+  int busWidth = 1,
 }) async {
   final bridge = SdReadBridge(
     breakDataCrossing: breakDataCrossing,
@@ -553,11 +559,12 @@ Future<SdReadBench> setUpSdReadBench({
     writeTimeoutClocks: writeTimeoutClocks,
     streamBlocks: streamBlocks,
     cacheLines: cacheLines,
+    busWidth: busWidth,
   );
   final sdClk = Logic(name: 'sd_clk');
   final reset = Logic(name: 'reset');
   final cmdIn = Logic(name: 'sd_cmd_in');
-  final datIn = Logic(name: 'sd_dat_in');
+  final datIn = Logic(name: 'sd_dat_in', width: busWidth);
   final cyc = Logic(name: 'wb_cyc');
   final stb = Logic(name: 'wb_stb');
   final we = Logic(name: 'wb_we');
@@ -595,6 +602,7 @@ Future<SdReadBench> setUpSdReadBench({
     cardCmdOe: bridge.output('sd_cmd_oe'),
     cardDat: bridge.output('sd_dat_out'),
     cardDatOe: bridge.output('sd_dat_oe'),
+    busWidth: busWidth,
   );
 
   sdClk.inject(0);
@@ -607,7 +615,7 @@ Future<SdReadBench> setUpSdReadBench({
   // edge can see the difference.
   reset.inject(0);
   cmdIn.inject(1);
-  datIn.inject(1);
+  datIn.inject(LogicValue.filled(busWidth, LogicValue.one));
   cyc.inject(0);
   stb.inject(0);
   we.inject(0);

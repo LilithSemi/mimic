@@ -277,9 +277,13 @@ const int sdCardRegTxBits = sdSwitchStatusBits;
 /// The SD Status Register is one 64-byte data frame. The fields that U-Boot
 /// consumes are optional geometry and erase hints, so a zero value is a
 /// valid minimal report for this emulated card. Its DAT_BUS_WIDTH field is
-/// also zero, which reports the 1-bit bus currently in use.
+/// zero for the 1-bit bus. The card sets [sdSsrBusWidth4Bit] there while
+/// the 4-bit bus is in use.
 const int sdSsrBytes = 64;
 const int sdCardSsrValue = 0;
+
+/// DAT_BUS_WIDTH of the SD Status for the 4-bit bus, bits 511 and 510.
+final BigInt sdSsrBusWidth4Bit = BigInt.two << (sdSsrBytes * 8 - 2);
 
 /// The switch status that CMD6 reports, with every group at its default.
 ///
@@ -535,6 +539,11 @@ class SdDecodeInputs {
   /// start bit that never comes.
   final Logic regReady;
 
+  /// High while the host has set the 4-bit bus with ACMD6, one bit wide.
+  ///
+  /// CMD0 clears it, because a card in idle uses the 1-bit bus.
+  final Logic busWide;
+
   /// Makes the input set of one decode.
   const SdDecodeInputs({
     required this.index,
@@ -550,6 +559,7 @@ class SdDecodeInputs {
     required this.writeReady,
     required this.cardEnable,
     required this.regReady,
+    required this.busWide,
   });
 }
 
@@ -727,6 +737,10 @@ class MimicSdCardFsm extends BridgeModule {
   /// to build. See [sdCardCidValueFor].
   final BigInt cid;
 
+  /// True when the datapath has four data lines, so ACMD6 can set the
+  /// 4-bit bus. A card without them refuses that width with ERROR.
+  final bool wideBus;
+
   /// Makes the card state machine.
   ///
   /// [decode] replaces the command set. It defaults to the command set of
@@ -735,9 +749,13 @@ class MimicSdCardFsm extends BridgeModule {
   ///
   /// [cid] is the CID register that CMD2 answers with. It defaults to
   /// [sdCardCidValue], the CID of a build that named no manufacture date.
-  MimicSdCardFsm({String? name, SdCommandDecode? decode, BigInt? cid})
-    : cid = cid ?? sdCardCidValue,
-      super('MimicSdCardFsm', name: name ?? 'sd_card_fsm') {
+  MimicSdCardFsm({
+    String? name,
+    SdCommandDecode? decode,
+    BigInt? cid,
+    this.wideBus = false,
+  }) : cid = cid ?? sdCardCidValue,
+       super('MimicSdCardFsm', name: name ?? 'sd_card_fsm') {
     if (this.cid.bitLength > sdResponseRegBits) {
       // Const truncates a value that is too wide with no message, and a
       // truncated CID is a card that gives an identity nobody built.
@@ -991,6 +1009,9 @@ class MimicSdCardFsm extends BridgeModule {
     // filled.
     addOutput('go_idle');
 
+    // High while the 4-bit bus is in use. The link reads it.
+    addOutput('bus_wide');
+
     final clk = input('clk');
     final reset = input('reset');
 
@@ -1016,6 +1037,7 @@ class MimicSdCardFsm extends BridgeModule {
     final appCmd = Logic(name: 'app_cmd_reg');
     final opCondPoll = Logic(name: 'op_cond_poll_reg', width: sdOpCondPollBits);
     final rca = Logic(name: 'rca_reg', width: sdRcaBits);
+    final busWide = Logic(name: 'bus_wide_reg');
 
     // The start of a block read. The module owns both, because the pulse
     // has to be one clock wide and a decode holds no state of its own.
@@ -1070,6 +1092,7 @@ class MimicSdCardFsm extends BridgeModule {
         writeReady: input('write_ready'),
         cardEnable: input('card_enable'),
         regReady: input('reg_ready'),
+        busWide: busWide,
       ),
     );
 
@@ -1207,6 +1230,7 @@ class MimicSdCardFsm extends BridgeModule {
         appCmd: Const(0),
         opCondPoll: Const(0, width: sdOpCondPollBits),
         rca: Const(0, width: sdRcaBits),
+        busWide: Const(0),
         readStartReg: Const(0),
         readLbaReg: Const(0, width: sdCommandArgBits),
         readMultiReg: Const(0),
@@ -1352,6 +1376,7 @@ class MimicSdCardFsm extends BridgeModule {
     output('reg_data') <= regDataReg;
     output('reg_bytes') <= regBytesReg;
     output('go_idle') <= goIdleReg;
+    output('bus_wide') <= mux(reset, Const(0), busWide);
   }
 
   /// The command set of the card.
@@ -1550,18 +1575,22 @@ class MimicSdCardFsm extends BridgeModule {
         .named('block_len_ok');
     final blockLenBad = (setBlockLen & ~blockLenOk).named('block_len_bad');
 
-    // ACMD6, SET_BUS_WIDTH. The card drives DAT0 alone, so it accepts the
-    // 1-bit bus and refuses every other width with ERROR.
-    //
-    // The SD specification requires the SCR to include the 4-bit support
-    // bit. The board device tree must limit the host to one data line until
-    // the datapath implements all four lines.
+    // ACMD6, SET_BUS_WIDTH. The card accepts the 1-bit bus, and the 4-bit
+    // bus when it is built with four data lines. It refuses every other
+    // width with ERROR and keeps the width it had.
     final setBusWidth = (isAcmd6 & inTran).named('set_bus_width');
-    final busWidthOk = inputs.arg
+    final askedWidth = inputs.arg
         .slice(sdBusWidthArgBits - 1, 0)
-        .eq(Const(sdBusWidthArg1Bit, width: sdBusWidthArgBits))
-        .named('bus_width_ok');
+        .named('bus_width_arg');
+    final asks4Bit = askedWidth
+        .eq(Const(sdBusWidthArg4Bit, width: sdBusWidthArgBits))
+        .named('bus_width_asks_4bit');
+    final busWidthOk =
+        (askedWidth.eq(Const(sdBusWidthArg1Bit, width: sdBusWidthArgBits)) |
+                (wideBus ? asks4Bit : Const(0)))
+            .named('bus_width_ok');
     final busWidthBad = (setBusWidth & ~busWidthOk).named('bus_width_bad');
+    final busWidthSet = (setBusWidth & busWidthOk).named('bus_width_set');
 
     // ACMD51, SEND_SCR. The card answers R1 and then puts the 8 bytes of
     // the SCR on DAT0 with a CRC16, in the same frame shape a block read
@@ -1676,9 +1705,13 @@ class MimicSdCardFsm extends BridgeModule {
       Const(sdCardScrValue, width: sdScrBytes * 8),
       Const(0, width: sdCardRegTxBits - sdScrBytes * 8),
     ].swizzle().named('scr_value');
-    final ssrValue = Const(
-      sdCardSsrValue,
-      width: sdCardRegTxBits,
+    final ssrValue = mux(
+      inputs.busWide,
+      Const(
+        BigInt.from(sdCardSsrValue) | sdSsrBusWidth4Bit,
+        width: sdCardRegTxBits,
+      ),
+      Const(sdCardSsrValue, width: sdCardRegTxBits),
     ).named('sd_status_value');
 
     // CMD12, STOP_TRANSMISSION, and CMD13, SEND_STATUS. The two commands
@@ -1923,6 +1956,13 @@ class MimicSdCardFsm extends BridgeModule {
           then: [inputs.rca < cardRca],
           orElse: [
             If(isCmd0, then: [inputs.rca < noRca]),
+          ],
+        ),
+        If(
+          busWidthSet,
+          then: [inputs.busWide < asks4Bit],
+          orElse: [
+            If(isCmd0, then: [inputs.busWide < Const(0)]),
           ],
         ),
       ],

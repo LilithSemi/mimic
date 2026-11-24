@@ -141,29 +141,22 @@ const String mimicSdClkPinName = 'sd_clk';
 /// into `sd_cmd_in` / `sd_cmd_out` / `sd_cmd_oe` inside the design.
 const String mimicSdCmdPinName = 'sd_cmd';
 
-/// Name of the SD data pin, line 0. It is bidirectional on the board and
-/// split inside the design, the same way as [mimicSdCmdPinName].
-const String mimicSdDatPinName = 'sd_dat0';
+/// Names of the SD data pins, DAT0 to DAT3. Each one is bidirectional on
+/// the board and split inside the design, the same way as
+/// [mimicSdCmdPinName].
+///
+/// The board catalog gives each ball `PULLMODE=UP`. A host holds its
+/// command inhibit while DAT reads busy, so a floating line can stop a host
+/// from sending any command.
+const List<String> mimicSdDatPinNames = [
+  'sd_dat0',
+  'sd_dat1',
+  'sd_dat2',
+  'sd_dat3',
+];
 
-/// Names of the SD data pins the datapath does not read, DAT1 to DAT3.
-///
-/// The bus is 1 bit wide, so no logic in this design reads these three
-/// lines. They still need a pad each. An SD HOST holds its command inhibit
-/// while DAT[3:0] read busy, and a real card holds all four lines high
-/// through pull-ups. A ball with no constraint has no pull-up and floats,
-/// so a host can read a card that is permanently busy and send no command
-/// at all, which looks the same as a card that is deaf.
-///
-/// The board build therefore takes a top-level INPUT for each one and reads
-/// none of them. The port exists so that the pad, and the `PULLMODE=UP`
-/// attribute the board catalog carries with the site, holds the line high
-/// the way a card does. A constraint for a port the design does not have
-/// makes nextpnr reject the build, so the port is what makes the pull-up
-/// reach the ball.
-///
-/// The 4-bit datapath reads these same three lines later. It replaces the
-/// ports with a wider `sd_dat` bus into [MimicSdCardDevice].
-const List<String> mimicSdDatPullupPinNames = ['sd_dat1', 'sd_dat2', 'sd_dat3'];
+/// Number of SD data lines of a board build.
+const int mimicSdBoardBusWidth = 4;
 
 /// Every external pin name the Mimic SoC drives on an FPGA board build.
 const List<String> mimicExposedPins = [
@@ -175,8 +168,7 @@ const List<String> mimicExposedPins = [
   mimicLedPinName,
   mimicSdClkPinName,
   mimicSdCmdPinName,
-  mimicSdDatPinName,
-  ...mimicSdDatPullupPinNames,
+  ...mimicSdDatPinNames,
 ];
 
 /// The board catalog signal that carries each SoC port whose name differs
@@ -418,7 +410,7 @@ HarborFpgaTarget _withMimicFpgaConstraints(HarborFpgaTarget target) {
 /// endpoints through the PHY.
 ///
 /// [ownPads] gives the SoC one bidirectional ball for `usb_dp`, `usb_dm`,
-/// [mimicSdCmdPinName] and [mimicSdDatPinName] (see [MimicUsbDevice.ownPads]).
+/// [mimicSdCmdPinName] and [mimicSdDatPinNames] (see [MimicUsbDevice.ownPads]).
 /// Off by default so the PHY-level tests drive the split line ports; genip
 /// turns it on for the board build.
 ///
@@ -574,6 +566,8 @@ HarborSoC buildMimicSoc({
       manufactureMonth: manufactureMonth,
     ),
     cacheLines: cacheLines,
+    // The split ports of a test build keep the 1-bit bus.
+    busWidth: ownPads ? mimicSdBoardBusWidth : 1,
   );
   soc.addSubModule(card);
 
@@ -616,47 +610,35 @@ HarborSoC buildMimicSoc({
   card.input('reset').srcConnection! <= sdReset;
 
   // The SD lines. With ownPads the SoC binds one bidirectional ball for CMD
-  // and one for DAT0 and drives each through a tristate buffer, the same
-  // shape MimicUsbDevice uses for D+ and D-. Without it the split ports come
-  // up to the top, where a test can drive them with no shared bidirectional
-  // net (ROHD does not co-simulate one between siblings).
+  // and one for each DAT line and drives each through a tristate buffer,
+  // the same shape MimicUsbDevice uses for D+ and D-. Without it the split
+  // ports come up to the top, where a test can drive them with no shared
+  // bidirectional net (ROHD does not co-simulate one between siblings).
   late final Logic cmdLevel;
-  late final Logic dat0Level;
-  final datHighLevels = <Logic>[];
+  late final List<Logic> datLevels;
   if (ownPads) {
     soc.createPort(mimicSdCmdPinName, PortDirection.inOut);
-    soc.createPort(mimicSdDatPinName, PortDirection.inOut);
     final cmdPad = soc.inOut(mimicSdCmdPinName);
-    final datPad = soc.inOut(mimicSdDatPinName);
     cmdPad <=
         TriStateBuffer(
           card.output('sd_cmd_out'),
           enable: card.output('sd_cmd_oe'),
         ).out;
-    datPad <=
-        TriStateBuffer(
-          card.output('sd_dat_out'),
-          enable: card.output('sd_dat_oe'),
-        ).out;
     card.input('sd_cmd_in').srcConnection! <= cmdPad;
-    card.input('sd_dat_in').srcConnection! <= datPad;
     cmdLevel = cmdPad;
-    dat0Level = datPad[0];
 
-    // DAT1 to DAT3. Nothing in this design reads them. Each one is a
-    // top-level input so that the ball takes the board constraint, and the
-    // pull-up in that constraint holds the line high the way a card does.
-    // See [mimicSdDatPullupPinNames] for why a floating line here stops a
-    // host from sending any command at all.
-    //
-    // The ports are deliberately left with no reader. A tie into logic
-    // would give the synthesis tool a reason to keep them and would also
-    // put three lines the card must not read into the card. What keeps
-    // them is that they are ports of the top module.
-    for (final pin in mimicSdDatPullupPinNames) {
-      soc.createPort(pin, PortDirection.input);
-      datHighLevels.add(soc.input(pin));
+    datLevels = [];
+    for (var i = 0; i < mimicSdBoardBusWidth; i++) {
+      soc.createPort(mimicSdDatPinNames[i], PortDirection.inOut);
+      final pad = soc.inOut(mimicSdDatPinNames[i]);
+      pad <=
+          TriStateBuffer(
+            card.output('sd_dat_out')[i],
+            enable: card.output('sd_dat_oe')[i],
+          ).out;
+      datLevels.add(pad);
     }
+    card.input('sd_dat_in').srcConnection! <= datLevels.rswizzle();
   } else {
     const splitPorts = [
       'sd_cmd_in',
@@ -670,7 +652,7 @@ HarborSoC buildMimicSoc({
       soc.exposePin(card, p, externalName: p);
     }
     cmdLevel = soc.input('sd_cmd_in');
-    dat0Level = soc.input('sd_dat_in')[0];
+    datLevels = [soc.input('sd_dat_in')[0]];
   }
 
   // DBG_PINS. Each bit is independent, so one synchroniser per bit is
@@ -680,11 +662,11 @@ HarborSoC buildMimicSoc({
     MimicDbgPins.cmdPad: cmdLevel,
     MimicDbgPins.cmdOe: card.output('sd_cmd_oe'),
     MimicDbgPins.cmdOut: card.output('sd_cmd_out'),
-    MimicDbgPins.dat0Pad: dat0Level,
-    MimicDbgPins.datOe: card.output('sd_dat_oe'),
-    for (var i = 0; i < 3; i++)
-      MimicDbgPins.dat1Pad + i: i < datHighLevels.length
-          ? datHighLevels[i]
+    MimicDbgPins.dat0Pad: datLevels[0],
+    MimicDbgPins.datOe: card.output('sd_dat_oe')[0],
+    for (var i = 1; i < 4; i++)
+      MimicDbgPins.dat1Pad + i - 1: i < datLevels.length
+          ? datLevels[i]
           : Const(1),
     MimicDbgPins.clkPad: soc.input(mimicSdClkPinName),
   };

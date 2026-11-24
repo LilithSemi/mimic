@@ -84,11 +84,10 @@ import 'sd_reg_tx.dart';
 /// carries the whole number, so a card whose clock starts again reads
 /// everything it missed.
 class MimicSdCardDevice extends BridgeModule {
-  /// Number of data lines. Only 1 is legal today.
+  /// Number of data lines on the pins, 1 or 4.
   ///
-  /// The value goes to [MimicSdLink], which refuses every other width
-  /// because its receive datapath reads DAT0 alone. The DAT ports of this
-  /// module follow the same width, so the pins and the link cannot
+  /// At 4 the card accepts the 4-bit bus through ACMD6. The DAT ports of
+  /// this module follow the same width, so the pins and the link cannot
   /// disagree.
   final int busWidth;
 
@@ -135,17 +134,8 @@ class MimicSdCardDevice extends BridgeModule {
        cacheLines = cacheLines ?? sdCacheDefaultLines,
        streamBlocks = streamBlocks ?? sdStreamRecordBlocks,
        super('MimicSdCardDevice', name: name ?? 'sd_card_device') {
-    if (busWidth != 1) {
-      // MimicSdLink refuses every width but 1, because its receive
-      // datapath reads DAT0 alone. Check the width here too, ahead of the
-      // createPort calls below, so a bad width gives this message and not
-      // a raw ROHD port width error.
-      throw ArgumentError.value(
-        busWidth,
-        'busWidth',
-        'must be 1. The receive path is 1-bit only. Widths 4 and 8 are '
-            'planned and need a per-line receive datapath first.',
-      );
+    if (busWidth != 1 && busWidth != 4) {
+      throw ArgumentError.value(busWidth, 'busWidth', 'must be 1 or 4.');
     }
     if (sdCardCsdValue.bitLength > sdResponseRegBits) {
       // Const truncates a value that is too wide with no message, and a
@@ -248,7 +238,7 @@ class MimicSdCardDevice extends BridgeModule {
     addOutput('sd_cmd_out');
     addOutput('sd_cmd_oe');
     addOutput('sd_dat_out', width: busWidth);
-    addOutput('sd_dat_oe');
+    addOutput('sd_dat_oe', width: busWidth);
     addOutput('card_state', width: sdCardStateBits);
 
     // The bring-up counters, published as GRAY CODES. Each one counts in
@@ -281,7 +271,12 @@ class MimicSdCardDevice extends BridgeModule {
 
     final link = MimicSdLink(busWidth: busWidth, name: 'sd_link');
     addSubModule(link);
-    final fsm = MimicSdCardFsm(name: 'sd_card_fsm', decode: decode, cid: cid);
+    final fsm = MimicSdCardFsm(
+      name: 'sd_card_fsm',
+      decode: decode,
+      cid: cid,
+      wideBus: busWidth > 1,
+    );
     addSubModule(fsm);
 
     link.input('clk').srcConnection! <= clk;
@@ -296,10 +291,13 @@ class MimicSdCardDevice extends BridgeModule {
     // leaves hardware correctness to clock-tree and pad delay.
     link.input('cmd_in').srcConnection! <= input('sd_cmd_in');
     link.input('dat_in').srcConnection! <= input('sd_dat_in');
+    if (busWidth > 1) {
+      link.input('dat_wide').srcConnection! <= fsm.output('bus_wide');
+    }
     final cmdOut = Logic(name: 'sd_cmd_out_negedge');
     final cmdOe = Logic(name: 'sd_cmd_oe_negedge');
     final datOut = Logic(name: 'sd_dat_out_negedge', width: busWidth);
-    final datOe = Logic(name: 'sd_dat_oe_negedge');
+    final datOe = Logic(name: 'sd_dat_oe_negedge', width: busWidth);
     Sequential.multi(
       const [],
       negedgeTriggers: [clk],
@@ -309,7 +307,7 @@ class MimicSdCardDevice extends BridgeModule {
         cmdOut: Const(1),
         cmdOe: Const(0),
         datOut: Const(1, width: busWidth, fill: true),
-        datOe: Const(0),
+        datOe: Const(0, width: busWidth),
       },
       [
         cmdOut < link.output('cmd_out'),
@@ -324,7 +322,7 @@ class MimicSdCardDevice extends BridgeModule {
     output('sd_cmd_oe') <= mux(reset, Const(0), cmdOe);
     output('sd_dat_out') <=
         mux(reset, Const(1, width: busWidth, fill: true), datOut);
-    output('sd_dat_oe') <= mux(reset, Const(0), datOe);
+    output('sd_dat_oe') <= mux(reset, Const(0, width: busWidth), datOe);
 
     // The command path, link to state machine. The four signals belong to
     // one clock: `cmd_valid` is a pulse of one clock and the other three

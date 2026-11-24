@@ -744,11 +744,11 @@ void main() {
   });
 
   group('sendDataBlock', () {
-    test('leaves the upper data lines released at a wide bus', () async {
-      // The link takes bus width 1 only today, so no card can show this.
-      // The host model must still put the block on DAT0 and leave DAT3 to
-      // DAT1 released, because a host that pulls them low for a whole
-      // block breaks a card that reads all four lines.
+    test('leaves the upper data lines released in the 1-bit mode', () async {
+      // On a 4-line bus that is still in the 1-bit mode, the host puts the
+      // block on DAT0 and leaves DAT3 to DAT1 released, because a host that
+      // pulls them low for a whole block breaks a card that reads all four
+      // lines.
       final clk = Logic(name: 'clk');
       final cmdIn = Logic(name: 'cmd_in');
       final datIn = Logic(name: 'dat_in', width: 4);

@@ -710,15 +710,12 @@ void main() {
     await Simulator.endSimulation();
   });
 
-  test('refuses a bus width the receive path cannot serve', () {
-    // The receive datapath reads DAT0 only, so a card built at width 4 or
-    // 8 takes a quarter or an eighth of each block and then reports a CRC
-    // failure. The constructor must refuse the width instead.
-    for (final width in [0, 2, 4, 8]) {
+  test('refuses a bus width other than 1 or 4', () {
+    for (final width in [0, 2, 8]) {
       expect(
         () => MimicSdLink(busWidth: width),
         throwsA(isA<ArgumentError>()),
-        reason: 'busWidth $width is not built yet',
+        reason: 'busWidth $width is not built',
       );
     }
   });

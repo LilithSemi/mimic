@@ -279,29 +279,22 @@ Logic _crc16Step(Logic state, Logic bit, String name) {
 /// holds the receive framer off, because a low line is not a line that a
 /// new block can start on.
 class MimicSdLink extends BridgeModule {
-  /// Number of data lines. Only 1 is legal today.
+  /// Number of data lines the pins have, 1 or 4.
   ///
-  /// The port widths follow this value and the transmit side is already
-  /// width correct, but the receive datapath reads DAT0 only. The
-  /// constructor therefore refuses every other value. See the check below.
+  /// At 4 the link has a `dat_wide` input. While it is high, data frames
+  /// use all four lines: each clock carries one nibble, high nibble first
+  /// with bit 7 on DAT3, and each line has its own CRC16. While it is low,
+  /// data frames use DAT0 alone. The CRC status token and busy always use
+  /// DAT0 alone.
   final int busWidth;
+
+  /// The data lines a frame uses in the 4-bit mode.
+  static const int _wideLines = 4;
 
   MimicSdLink({this.busWidth = 1, String? name})
     : super('MimicSdLink', name: name ?? 'sd_link') {
-    if (busWidth != 1) {
-      // The receive datapath is 1-bit only. It reads dat_in[0], it keeps
-      // one 8-bit byte register and one CRC16 remainder, and it counts one
-      // block as 4114 clocks. A card built at width 4 or 8 would therefore
-      // take a quarter or an eighth of each block and then report a CRC
-      // failure, which looks like bad data and not like a build error.
-      // Bus widths 4 and 8 are planned. They need a per-line receive
-      // datapath first.
-      throw ArgumentError.value(
-        busWidth,
-        'busWidth',
-        'must be 1. The receive path is 1-bit only. Widths 4 and 8 are '
-            'planned and need a per-line receive datapath first.',
-      );
+    if (busWidth != 1 && busWidth != _wideLines) {
+      throw ArgumentError.value(busWidth, 'busWidth', 'must be 1 or 4.');
     }
     if (sdDataTxLenBits != sdBlockBytes.bitLength) {
       throw StateError(
@@ -332,11 +325,12 @@ class MimicSdLink extends BridgeModule {
     createPort('dat_tx_start', PortDirection.input);
     createPort('dat_tx_byte', PortDirection.input, width: 8);
     createPort('dat_tx_len', PortDirection.input, width: sdDataTxLenBits);
+    if (busWidth > 1) createPort('dat_wide', PortDirection.input);
 
     addOutput('cmd_out');
     addOutput('cmd_oe');
     addOutput('dat_out', width: busWidth);
-    addOutput('dat_oe');
+    addOutput('dat_oe', width: busWidth);
     addOutput('cmd_index', width: sdCommandIndexBits);
     addOutput('cmd_arg', width: sdCommandArgBits);
     addOutput('cmd_valid');
@@ -755,11 +749,13 @@ class MimicSdLink extends BridgeModule {
     final stBit = stShift[sdStatusTokenBits - 1].named('st_bit');
 
     // Data receive. The block is a start bit, sdBlockBytes bytes most
-    // significant bit first, a 16-bit CRC and an end bit. Only DAT0 is used
-    // at busWidth 1. A wide bus splits the payload across the lines and
-    // gives each line its own shift register and its own CRC, so this
-    // block is the one-line form of the same structure.
+    // significant bit first, a 16-bit CRC on each line and an end bit. In
+    // the 1-bit mode DAT0 carries one bit per clock. In the 4-bit mode the
+    // four lines carry one nibble per clock and each line has its own CRC.
     final dat0 = input('dat_in')[0].named('dat0');
+    final wide = busWidth > 1 ? input('dat_wide') : Const(0);
+    final lines = busWidth > 1 ? _wideLines : 1;
+    final datLine = [for (var i = 0; i < lines; i++) input('dat_in')[i]];
 
     // The widths come from the constants, so a larger block or a longer CRC
     // cannot truncate a goal and stop a counter from reaching it.
@@ -779,8 +775,12 @@ class MimicSdLink extends BridgeModule {
     final drByte = Logic(name: 'dr_byte', width: byteWidth);
     final drCrcCount = Logic(name: 'dr_crc_count', width: crcCountWidth);
     final drShift = Logic(name: 'dr_shift', width: 8);
-    final drCrc = Logic(name: 'dr_crc', width: 16);
-    final drCrcIn = Logic(name: 'dr_crc_in', width: 16);
+    final drCrc = [
+      for (var i = 0; i < lines; i++) Logic(name: 'dr_crc_$i', width: 16),
+    ];
+    final drCrcIn = [
+      for (var i = 0; i < lines; i++) Logic(name: 'dr_crc_in_$i', width: 16),
+    ];
     final drBytePulse = Logic(name: 'dr_byte_pulse');
     final drEndPulse = Logic(name: 'dr_end_pulse');
     final drCrcOk = Logic(name: 'dr_crc_ok');
@@ -819,17 +819,40 @@ class MimicSdLink extends BridgeModule {
     final drPayload = (drActive & ~drInCrc).named('dr_payload_phase');
     final drCrcPhase = (drActive & drInCrc).named('dr_crc_phase');
 
-    final drShiftNext = [
-      drShift.slice(6, 0),
-      dat0,
-    ].swizzle().named('dr_shift_next');
-    final drCrcNext = _crc16Step(drCrc, dat0, 'dr_crc_step');
+    final drShiftNarrow = [drShift.slice(6, 0), dat0].swizzle();
+    final drShiftNext =
+        (lines == 1
+                ? drShiftNarrow
+                : mux(
+                    wide,
+                    [drShift.slice(3, 0), ...datLine.reversed].swizzle(),
+                    drShiftNarrow,
+                  ))
+            .named('dr_shift_next');
+    final drCrcNext = [
+      for (var i = 0; i < lines; i++)
+        _crc16Step(drCrc[i], datLine[i], 'dr_crc_step_$i'),
+    ];
     final drCrcInNext = [
-      drCrcIn.slice(14, 0),
-      dat0,
-    ].swizzle().named('dr_crc_in_next');
+      for (var i = 0; i < lines; i++)
+        [
+          drCrcIn[i].slice(14, 0),
+          datLine[i],
+        ].swizzle().named('dr_crc_in_next_$i'),
+    ];
+    // In the 1-bit mode only line 0 carries a CRC.
+    var drCrcGood = drCrc[0].eq(drCrcInNext[0]);
+    for (var i = 1; i < lines; i++) {
+      drCrcGood = drCrcGood & (~wide | drCrc[i].eq(drCrcInNext[i]));
+    }
 
-    final drLastBit = drBit.eq(Const(7, width: 3)).named('dr_last_bit');
+    // drBit counts the clocks of one byte: 8 in the 1-bit mode, 2 in the
+    // 4-bit mode.
+    final drLastBit = mux(
+      wide,
+      drBit.eq(Const(1, width: 3)),
+      drBit.eq(Const(7, width: 3)),
+    ).named('dr_last_bit');
     final drLastByte = drByte
         .eq(Const(sdBlockBytes - 1, width: byteWidth))
         .named('dr_last_byte');
@@ -860,16 +883,16 @@ class MimicSdLink extends BridgeModule {
           drBit < Const(0, width: 3),
           drByte < Const(0, width: byteWidth),
           drCrcCount < Const(0, width: crcCountWidth),
-          drCrc < Const(0, width: 16),
-          drCrcIn < Const(0, width: 16),
+          for (final c in drCrc) c < Const(0, width: 16),
+          for (final c in drCrcIn) c < Const(0, width: 16),
         ],
       ),
       If(
         drPayload,
         then: [
-          // Shift the bit into the byte and run the CRC over it.
+          // Shift the bits into the byte and run each line's CRC.
           drShift < drShiftNext,
-          drCrc < drCrcNext,
+          for (var i = 0; i < lines; i++) drCrc[i] < drCrcNext[i],
           drBit < drBit + oneBit3,
           If(
             drLastBit,
@@ -895,7 +918,7 @@ class MimicSdLink extends BridgeModule {
         drCrcPhase,
         then: [
           // The CRC bits the host sent go into a compare register.
-          drCrcIn < drCrcInNext,
+          for (var i = 0; i < lines; i++) drCrcIn[i] < drCrcInNext[i],
           drCrcCount < drCrcCount + oneCrcCount,
           If(
             drLastCrcBit,
@@ -908,7 +931,7 @@ class MimicSdLink extends BridgeModule {
               // bit is on the line now, so the verdict reads drCrcInNext
               // and not the register, and is caught on the same edge that
               // raises the pulse. The two therefore agree.
-              drCrcOk < drCrc.eq(drCrcInNext),
+              drCrcOk < drCrcGood,
             ],
           ),
         ],
@@ -946,7 +969,10 @@ class MimicSdLink extends BridgeModule {
     final dtByte = Logic(name: 'dt_byte', width: byteWidth);
     final dtCrcCount = Logic(name: 'dt_crc_count', width: crcCountWidth);
     final dtShift = Logic(name: 'dt_shift', width: 8);
-    final dtCrc = Logic(name: 'dt_crc', width: sdDataCrcBits);
+    final dtCrc = [
+      for (var i = 0; i < lines; i++)
+        Logic(name: 'dt_crc_$i', width: sdDataCrcBits),
+    ];
     final dtDonePulse = Logic(name: 'dt_done_pulse');
 
     final dtInStart = dtPhase.eq(dtStartPhase).named('dt_in_start');
@@ -963,7 +989,11 @@ class MimicSdLink extends BridgeModule {
     // which is the frame a card sends most.
     final dtLenLast = Logic(name: 'dt_len_last', width: byteWidth);
 
-    final dtLastBit = dtBit.eq(Const(7, width: 3)).named('dt_last_bit');
+    final dtLastBit = mux(
+      wide,
+      dtBit.eq(Const(1, width: 3)),
+      dtBit.eq(Const(7, width: 3)),
+    ).named('dt_last_bit');
     final dtLastByte = dtByte.eq(dtLenLast).named('dt_last_byte');
     final dtLastCrcBit = dtCrcCount
         .eq(Const(sdDataCrcBits - 1, width: crcCountWidth))
@@ -987,27 +1017,51 @@ class MimicSdLink extends BridgeModule {
     final dtGo = (input('dat_tx_start') & ~dtActive & ~stActive & ~drActive)
         .named('dt_go');
 
-    // The bit on the line now. The end phase drives the end bit 1, which
-    // is also what a released line reads.
-    final dtBitOut = mux(
-      dtInStart,
-      Const(0),
-      mux(
-        dtInPayload,
-        dtShift[7],
-        mux(dtInCrc, dtCrc[sdDataCrcBits - 1], Const(1)),
-      ),
-    ).named('dt_bit_out');
+    // The payload bit of each line. In the 1-bit mode DAT0 sends bit 7. In
+    // the 4-bit mode line i sends bit 4 + i of the high nibble.
+    final dtPayloadBit = [
+      for (var i = 0; i < lines; i++)
+        i == 0 && lines > 1
+            ? mux(wide, dtShift[4], dtShift[7])
+            : dtShift[lines == 1 ? 7 : 4 + i],
+    ];
 
-    final dtCrcNext = _crc16Step(dtCrc, dtShift[7], 'dt_crc_step');
-    final dtShiftNext = [
-      dtShift.slice(6, 0),
-      Const(0),
-    ].swizzle().named('dt_shift_next');
+    // The bit on each line now. The end phase drives the end bit 1, which
+    // is also what a released line reads.
+    final dtBitOut = [
+      for (var i = 0; i < lines; i++)
+        mux(
+          dtInStart,
+          Const(0),
+          mux(
+            dtInPayload,
+            dtPayloadBit[i],
+            mux(dtInCrc, dtCrc[i][sdDataCrcBits - 1], Const(1)),
+          ),
+        ).named('dt_bit_out_$i'),
+    ];
+
+    final dtCrcNext = [
+      for (var i = 0; i < lines; i++)
+        _crc16Step(dtCrc[i], dtPayloadBit[i], 'dt_crc_step_$i'),
+    ];
+    final dtShiftNarrow = [dtShift.slice(6, 0), Const(0)].swizzle();
+    final dtShiftNext =
+        (lines == 1
+                ? dtShiftNarrow
+                : mux(
+                    wide,
+                    [dtShift.slice(3, 0), Const(0, width: 4)].swizzle(),
+                    dtShiftNarrow,
+                  ))
+            .named('dt_shift_next');
     final dtCrcShift = [
-      dtCrc.slice(sdDataCrcBits - 2, 0),
-      Const(0),
-    ].swizzle().named('dt_crc_shift');
+      for (var i = 0; i < lines; i++)
+        [
+          dtCrc[i].slice(sdDataCrcBits - 2, 0),
+          Const(0),
+        ].swizzle().named('dt_crc_shift_$i'),
+    ];
 
     Sequential(
       clk,
@@ -1018,7 +1072,7 @@ class MimicSdLink extends BridgeModule {
         dtByte: Const(0, width: byteWidth),
         dtCrcCount: Const(0, width: crcCountWidth),
         dtShift: Const(0, width: 8),
-        dtCrc: Const(0, width: sdDataCrcBits),
+        for (final c in dtCrc) c: Const(0, width: sdDataCrcBits),
         dtDonePulse: Const(0),
         // A whole block, so a start pulse that arrives before any length
         // was given sends the frame a card sends most and never a frame of
@@ -1038,7 +1092,7 @@ class MimicSdLink extends BridgeModule {
                 dtBit < Const(0, width: 3),
                 dtByte < Const(0, width: byteWidth),
                 dtCrcCount < Const(0, width: crcCountWidth),
-                dtCrc < Const(0, width: sdDataCrcBits),
+                for (final c in dtCrc) c < Const(0, width: sdDataCrcBits),
                 // The length of THIS frame, taken in the same clock the link
                 // takes the start pulse. The payload phase reads the
                 // register alone, so the port is free after this clock.
@@ -1056,7 +1110,7 @@ class MimicSdLink extends BridgeModule {
           CaseItem(dtPayloadPhase, [
             // The bit on the line joins the CRC and the byte shifts on.
             dtShift < dtShiftNext,
-            dtCrc < dtCrcNext,
+            for (var i = 0; i < lines; i++) dtCrc[i] < dtCrcNext[i],
             dtBit < dtBit + oneBit3,
             If(
               dtLastBit,
@@ -1079,7 +1133,7 @@ class MimicSdLink extends BridgeModule {
             ),
           ]),
           CaseItem(dtCrcPhaseVal, [
-            dtCrc < dtCrcShift,
+            for (var i = 0; i < lines; i++) dtCrc[i] < dtCrcShift[i],
             dtCrcCount < dtCrcCount + oneCrcCount,
             If(dtLastCrcBit, then: [dtPhase < dtEndPhase]),
           ]),
@@ -1093,20 +1147,27 @@ class MimicSdLink extends BridgeModule {
     output('dat_tx_done') <= dtDonePulse;
 
     // DAT0 carries the block, then the token, and rests high when the card
-    // drives neither. The other data lines stay released, because the
-    // receive and the transmit datapaths are both one line wide.
-    // DAT0 rests high, the busy level pulls it low, and either sender
-    // beats the busy level: a frame or a token that is already going out
-    // cannot be cut in half by a level that a card personality holds.
+    // drives neither. DAT0 rests high, the busy level pulls it low, and
+    // either sender beats the busy level: a frame or a token that is
+    // already going out cannot be cut in half by a level that a card
+    // personality holds. DAT1 to DAT3 carry a frame in the 4-bit mode and
+    // are released at all other times.
     final datBit = mux(
       dtActive,
-      dtBitOut,
+      dtBitOut[0],
       mux(stActive, stBit, ~input('dat_busy')),
     ).named('dat_bit');
+    final wideActive = (dtActive & wide).named('dt_wide_active');
     output('dat_out') <=
-        (busWidth == 1
-            ? datBit
-            : [Const(1, width: busWidth - 1, fill: true), datBit].swizzle());
-    output('dat_oe') <= stActive | dtActive | input('dat_busy');
+        [
+          for (var i = busWidth - 1; i >= 1; i--)
+            mux(wideActive, dtBitOut[i], Const(1)),
+          datBit,
+        ].swizzle();
+    output('dat_oe') <=
+        [
+          for (var i = busWidth - 1; i >= 1; i--) wideActive,
+          stActive | dtActive | input('dat_busy'),
+        ].swizzle();
   }
 }

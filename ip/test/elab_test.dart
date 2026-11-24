@@ -260,7 +260,14 @@ void main() {
 
         // The tristate drivers, one per ball.
         expect(sv, contains("assign sd_cmd = sd_cmd_oe ? sd_cmd_out : 1'bz"));
-        expect(sv, contains("assign sd_dat0 = sd_dat_oe ? sd_dat_out : 1'bz"));
+        for (var i = 0; i < 4; i++) {
+          expect(
+            sv,
+            contains(
+              "assign sd_dat$i = (sd_dat_oe[$i]) ? (sd_dat_out[$i]) : 1'bz",
+            ),
+          );
+        }
 
         // The clock buffer, and the card clocked from its output and not from
         // the raw pad.
@@ -272,17 +279,11 @@ void main() {
       },
     );
 
-    test('DAT1 to DAT3 are ports, so their pads take the pull-up', () async {
-      // The hardware failure this holds: an SD host keeps its command
-      // inhibit while DAT[3:0] read busy. A real card holds all four data
-      // lines high through pull-ups. The 1-bit datapath reads DAT0 alone,
-      // so DAT1 to DAT3 have no logic behind them, and a ball with no
-      // constraint has no pull-up and floats. The host then reads a card
-      // that is permanently busy and sends no command at all, which looks
-      // exactly like a card that never hears the clock.
-      //
-      // A constraint needs a port. These three ports are what carries the
-      // PULLMODE=UP of the board catalog to the ball.
+    test('DAT0 to DAT3 are bidirectional pads with the pull-up', () async {
+      // An SD host keeps its command inhibit while DAT[3:0] read busy, so
+      // a ball with no constraint and no pull-up can stop every command.
+      // The constraint needs a port, and the 4-bit bus needs each port
+      // to be bidirectional.
       final board = HarborBoard.get('orangecrab-25f');
       final target = resolveMimicTarget(board: 'orangecrab-25f');
       final soc = buildMimicSoc(
@@ -293,46 +294,31 @@ void main() {
       );
       await soc.build();
 
-      for (final pin in mimicSdDatPullupPinNames) {
-        expect(
-          soc.inputs.keys,
-          contains(pin),
-          reason: '$pin must be a top-level port or its site is dropped',
-        );
+      for (final pin in mimicSdDatPinNames) {
+        expect(soc.inOuts.keys, contains(pin));
       }
-      // They are inputs and never balls the design drives.
-      expect(soc.outputs.keys, isNot(contains('sd_dat1')));
-      expect(soc.inOuts.keys, isNot(contains('sd_dat1')));
 
-      // The port list of the emitted top module carries all three, so the
-      // synthesis tool sees a port and builds a pad for it.
       final sv = soc.generateSynth();
       final start = sv.indexOf('module mimic_sd_pullup_elab (');
       expect(start, greaterThanOrEqualTo(0));
       final ports = sv.substring(start, sv.indexOf(');', start));
-      expect(ports, contains('input logic sd_dat1'));
-      expect(ports, contains('input logic sd_dat2'));
-      expect(ports, contains('input logic sd_dat3'));
+      for (final pin in mimicSdDatPinNames) {
+        expect(ports, contains('inout wire $pin'));
+      }
 
-      // The sites and the pull-up reach the LPF that the build writes.
       // Sites come from the litex-boards gsd_orangecrab r0.2 table.
       final lpf = target.generateConstraints();
+      expect(lpf, contains('LOCATE COMP "sd_dat0" SITE "J1";'));
       expect(lpf, contains('LOCATE COMP "sd_dat1" SITE "K3";'));
       expect(lpf, contains('LOCATE COMP "sd_dat2" SITE "L3";'));
       expect(lpf, contains('LOCATE COMP "sd_dat3" SITE "M1";'));
-      for (final pin in mimicSdDatPullupPinNames) {
+      for (final pin in mimicSdDatPinNames) {
         expect(
           lpf,
           contains('IOBUF PORT "$pin" IO_TYPE=LVCMOS33 PULLMODE=UP;'),
           reason: 'without PULLMODE=UP the ball floats and reads busy',
         );
       }
-
-      // The card itself reads none of them. Only DAT0 reaches the card.
-      final cardArgs = _instanceArgs(sv, 'MimicSdCardDevice  sd_card_device(');
-      expect(cardArgs, isNot(contains('sd_dat1')));
-      expect(cardArgs, isNot(contains('sd_dat2')));
-      expect(cardArgs, isNot(contains('sd_dat3')));
     });
 
     test('a board that states a clock-capable SD ball takes no DCCA', () async {

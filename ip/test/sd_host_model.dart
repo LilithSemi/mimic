@@ -55,6 +55,28 @@ const int sdNcrMax = 64;
 /// that does not fit throws. The frame of a masked value is a legal frame
 /// with a good CRC7 for a command that the caller did not ask for, so the
 /// device answers it and the test then looks for the fault in the device.
+/// The bits each line of a 4-bit bus carries for [bytes], line 0 first.
+///
+/// A byte goes out as two nibbles, high nibble first, and line `l` takes
+/// bit `l` of each nibble.
+List<List<int>> sdWideLineBits(List<int> bytes) => [
+  for (var l = 0; l < 4; l++)
+    [
+      for (final b in bytes) ...[(b >> (4 + l)) & 1, (b >> l) & 1],
+    ],
+];
+
+/// The CRC16 of the SD data lines, x^16 + x^12 + x^5 + 1, over [bits].
+int sdCrc16Bits(List<int> bits) {
+  var crc = 0;
+  for (final bit in bits) {
+    final feedback = ((crc >> 15) ^ bit) & 1;
+    crc = (crc << 1) & 0xFFFF;
+    if (feedback == 1) crc ^= 0x1021;
+  }
+  return crc;
+}
+
 List<int> sdCommandFrame(int index, int argument) {
   if (index < 0 || index >= (1 << sdCommandIndexBits)) {
     throw ArgumentError.value(
@@ -502,11 +524,32 @@ class SdHost {
 
   /// The value on DAT now, in the same shape as [cmdLine].
   ///
+  /// A `dat_oe` of one bit covers every line. A `dat_oe` as wide as the
+  /// bus gives each line its own enable.
+  ///
   /// An X or a Z on `dat_oe` throws. See [_checkOe].
   LogicValue get datLine {
     _checkOe(cardDatOe, 'dat_oe');
-    return (cardDatOe?.value == LogicValue.one) ? cardDat!.value : _datDrive;
+    final oe = cardDatOe?.value;
+    if (oe == null) return _datDrive;
+    final bits = [
+      for (var i = 0; i < busWidth; i++)
+        (oe.width == 1 ? oe[0] : oe[i]) == LogicValue.one
+            ? cardDat!.value[i]
+            : _datDrive[i],
+    ];
+    return bits.rswizzle();
   }
+
+  /// True while data frames use all four lines. The test sets it after the
+  /// card accepts ACMD6 with the 4-bit argument.
+  bool wide = false;
+
+  /// All lines of DAT as plain bits, line 0 first. -1 for X or Z.
+  List<int> get _datBits => [
+    for (var i = 0; i < busWidth; i++)
+      datLine[i].isValid ? datLine[i].toInt() : -1,
+  ];
 
   /// Throws if the output enable [oe] holds a value that is not 0 or 1.
   ///
@@ -620,6 +663,7 @@ class SdHost {
   /// goes out whole, which is what a real line fault looks like: the bytes
   /// arrive and the check on them fails.
   Future<void> sendDataBlock(List<int> bytes, {int? crcOverride}) async {
+    if (wide) return _sendWideBlock(bytes, crcOverride: crcOverride);
     // Build the CRC16 first. The helper reads 8 bits of each entry and
     // throws for an entry outside 0 to 255, and a throw in the middle of
     // the block would leave the card inside a block that has no end bit.
@@ -637,6 +681,49 @@ class SdHost {
       await tick();
     }
     driveDat(1); // end bit
+    await tick();
+  }
+
+  /// Sends [bytes] on the 4-bit bus with the per-line CRCs of [crcsOf].
+  /// A test uses it to damage one line and keep the other CRCs good.
+  Future<void> sendDataBlockWithLineCrcs(
+    List<int> bytes, {
+    required List<int> crcsOf,
+  }) => _sendWideBlock(bytes, crcsOf: crcsOf);
+
+  /// The 4-bit form of [sendDataBlock]. Each clock carries one nibble,
+  /// high nibble first, with bit 7 on DAT3. Each line has its own CRC16.
+  /// [crcOverride] replaces the CRC of DAT0 only.
+  Future<void> _sendWideBlock(
+    List<int> bytes, {
+    int? crcOverride,
+    List<int>? crcsOf,
+  }) async {
+    final lines = sdWideLineBits(crcsOf ?? bytes);
+    final crcs = [for (final l in lines) sdCrc16Bits(l)];
+    if (crcOverride != null) crcs[0] = crcOverride;
+    void drive(int nibble) {
+      _datDrive = LogicValue.ofInt(nibble & 0xF, busWidth);
+      _tie();
+    }
+
+    drive(0); // start bit
+    await tick();
+    for (final b in bytes) {
+      drive(b >> 4);
+      await tick();
+      drive(b);
+      await tick();
+    }
+    for (var i = 15; i >= 0; i--) {
+      var nibble = 0;
+      for (var l = 0; l < 4; l++) {
+        nibble |= ((crcs[l] >> i) & 1) << l;
+      }
+      drive(nibble);
+      await tick();
+    }
+    drive(0xF); // end bit
     await tick();
   }
 
@@ -857,6 +944,10 @@ class SdHost {
       waited++;
     }
 
+    if (wide) {
+      return _receiveWideBlock(blockBytes, waited: waited, strict: strict);
+    }
+
     // The bit on the line now is the start bit. The frame that follows it
     // is the payload, the CRC and the end bit.
     final frameBits = 1 + blockBytes * 8 + sdDataCrcBits + 1;
@@ -906,6 +997,63 @@ class SdHost {
     return SdDataBlock._(
       bytes: List<int>.unmodifiable(bytes),
       crc: crc,
+      crcOk: crcOk,
+      framingOk: framingOk,
+      timedOut: false,
+      gap: waited,
+    );
+  }
+
+  /// The 4-bit form of [receiveDataBlock], called with the start bit on
+  /// the line. Every line must carry the start bit, its own CRC16 and the
+  /// end bit.
+  Future<SdDataBlock> _receiveWideBlock(
+    int blockBytes, {
+    required int waited,
+    required bool strict,
+  }) async {
+    final clocks = 1 + blockBytes * 2 + sdDataCrcBits + 1;
+    final samples = <List<int>>[];
+    for (var i = 0; i < clocks; i++) {
+      final s = _datBits;
+      if (s.any((b) => b != 0 && b != 1)) {
+        throw StateError(
+          'clock $i of the 4-bit data block holds X or Z on a line: $s.',
+        );
+      }
+      samples.add(s);
+      await tick();
+    }
+    int nibble(List<int> s) => s[0] | s[1] << 1 | s[2] << 2 | s[3] << 3;
+    final bytes = [
+      for (var i = 0; i < blockBytes; i++)
+        nibble(samples[1 + i * 2]) << 4 | nibble(samples[2 + i * 2]),
+    ];
+    final lines = sdWideLineBits(bytes);
+    var crcOk = true;
+    var crc0 = 0;
+    for (var l = 0; l < 4; l++) {
+      var crc = 0;
+      for (var i = 0; i < sdDataCrcBits; i++) {
+        crc = (crc << 1) | samples[1 + blockBytes * 2 + i][l];
+      }
+      if (l == 0) crc0 = crc;
+      if (crc != sdCrc16Bits(lines[l])) crcOk = false;
+    }
+    final framingOk =
+        samples.first.every((b) => b == 0) && samples.last.every((b) => b == 1);
+    if (strict && !framingOk) {
+      throw StateError(
+        'the 4-bit data block is not framed: start ${samples.first}, end '
+        '${samples.last}.',
+      );
+    }
+    if (strict && !crcOk) {
+      throw StateError('a line of the 4-bit data block has a bad CRC16.');
+    }
+    return SdDataBlock._(
+      bytes: List<int>.unmodifiable(bytes),
+      crc: crc0,
       crcOk: crcOk,
       framingOk: framingOk,
       timedOut: false,

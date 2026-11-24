@@ -529,7 +529,7 @@ class MimicDbgPins {
   /// Bit 3: the DAT0 pad level.
   static const int dat0Pad = 3;
 
-  /// Bit 4: the card drives DAT.
+  /// Bit 4: the card drives DAT0.
   static const int datOe = 4;
 
   /// Bits 7 to 5: the DAT1 to DAT3 pad levels.
