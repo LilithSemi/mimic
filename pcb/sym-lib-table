@@ -7,6 +7,7 @@
   (lib (name "Device")(type "KiCad")(uri "${KICAD10_SYMBOL_DIR}/Device.kicad_sym")(options "")(descr ""))
   (lib (name "Mechanical")(type "KiCad")(uri "${KICAD10_SYMBOL_DIR}/Mechanical.kicad_sym")(options "")(descr ""))
   (lib (name "Switch")(type "KiCad")(uri "${KICAD10_SYMBOL_DIR}/Switch.kicad_sym")(options "")(descr ""))
+  (lib (name "mimic")(type "KiCad")(uri "${KIPRJMOD}/lib/mimic.kicad_sym")(options "")(descr "Mimic V1 parts"))
   (lib (name "gkl_lattice")(type "Legacy")(uri "${KIPRJMOD}/third_party/gkl/symbols/gkl_lattice.lib")(options "")(descr "OrangeCrab library snapshot"))
   (lib (name "gkl_mem")(type "Legacy")(uri "${KIPRJMOD}/third_party/gkl/symbols/gkl_mem.lib")(options "")(descr "OrangeCrab library snapshot"))
   (lib (name "gkl_pmic")(type "Legacy")(uri "${KIPRJMOD}/third_party/gkl/symbols/gkl_pmic.lib")(options "")(descr "OrangeCrab library snapshot"))
