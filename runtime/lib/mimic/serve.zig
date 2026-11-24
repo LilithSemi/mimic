@@ -277,6 +277,14 @@ pub const Options = struct {
     /// CMD18 would otherwise never let it look. 64 chunks is 2048 blocks,
     /// which is a few seconds of a full speed link.
     max_stream_chunks: u16 = 64,
+    /// Blocks of a stream that may wait on the card at once, or 0 for no
+    /// cap beyond the room of the channel.
+    ///
+    /// The host does not say how long a stream is, so every block that
+    /// waits on the card when the host stops it is thrown away. The card
+    /// sends a block about ten times faster than USB delivers one, so a
+    /// few blocks in flight keep it busy.
+    stream_ahead_blocks: u8 = 0,
 };
 
 /// Microseconds the CLI waits between two reads of DATA_IN_COUNT.
@@ -1019,8 +1027,10 @@ pub const Server = struct {
             }
             var entries: [PUSH_BATCH_BLOCKS]PushEntry = undefined;
             var count: usize = 0;
+            const room = if (stream) self.streamRoom() else entries.len;
             while (lba < chunk_end and
                 count < entries.len and
+                count < room and
                 self.batchFits(count + 1)) : (lba += 1)
             {
                 entries[count] = .{
@@ -1155,6 +1165,18 @@ pub const Server = struct {
 
     /// True while one transaction may carry `blocks` blocks: the data
     /// channel holds room for all of them and the batch limit allows them.
+    /// Blocks a stream may push now: the room of the channel, less the
+    /// blocks over the `stream_ahead_blocks` cap.
+    fn streamRoom(self: *const Server) usize {
+        const room = self.credit_words / BLOCK_WORDS;
+        const cap = self.options.stream_ahead_blocks;
+        if (cap == 0) return room;
+        const waiting_words = self.channel_words -| self.credit_words;
+        const waiting = (waiting_words + BLOCK_WORDS - 1) / BLOCK_WORDS;
+        if (waiting >= cap) return 0;
+        return @min(room, cap - waiting);
+    }
+
     fn batchFits(self: *const Server, blocks: usize) bool {
         if (blocks > self.options.max_batch_blocks) return false;
         return blocks * BLOCK_WORDS <= self.credit_words;
@@ -1642,7 +1664,7 @@ pub const Server = struct {
 
     fn awaitStreamSpace(self: *Server) !?Request {
         if (self.streamEnded()) return Error.StreamAborted;
-        if (self.credit_words >= BLOCK_WORDS) return null;
+        if (self.streamRoom() > 0) return null;
         var polls: u32 = 0;
         defer {
             self.stats.space_polls += polls;
@@ -1661,7 +1683,7 @@ pub const Server = struct {
                 });
             }
             if (self.streamEnded()) return Error.StreamAborted;
-            if (self.credit_words >= BLOCK_WORDS) {
+            if (self.streamRoom() > 0) {
                 polls += 1;
                 return null;
             }
@@ -2637,6 +2659,32 @@ test "a record that lands mid stream stops the stream and is answered next" {
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     try std.testing.expectEqual(batch + 2 * batch, server.stats.blocks);
     try std.testing.expectEqual(@as(u64, 2), server.stats.round_trips - before);
+}
+
+test "the stream ahead cap splits a chunk into smaller pushes" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 128);
+    const image = try openTestImage(tmp.dir, "card.img", 128, false);
+    defer image.file.close(std.testing.io);
+
+    // The fake drains the channel at once, so the cap alone decides the
+    // size of each push: an 8 block chunk with a cap of 4 is two pushes.
+    const words = (Request{ .op = 0x01, .blocks = 8, .lba = 0, .seq = 1 }).words();
+    var pushes: [2]u64 = undefined;
+    for ([_]u8{ 0, 4 }, 0..) |cap, i| {
+        var fake: FakeDevice = .{ .req = &words, .req_count = 1 };
+        var server: Server = .{
+            .device = fake.device(),
+            .image = image,
+            .options = .{ .stream_ahead_blocks = cap },
+        };
+        server.channel_words = fake.space_words;
+        try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+        try std.testing.expectEqual(@as(u64, 8), server.stats.blocks);
+        pushes[i] = server.stats.round_trips;
+    }
+    try std.testing.expectEqual(pushes[0] + 1, pushes[1]);
 }
 
 test "a stream stops when the card leaves the data state" {

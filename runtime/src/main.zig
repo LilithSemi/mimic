@@ -47,6 +47,12 @@ const Device = transport.Device;
 /// until the card has put this one on DAT.
 const DEFAULT_READ_AHEAD: u16 = 0;
 
+/// Blocks of a stream that may wait on the card at once. The card sends a
+/// block about ten times faster than USB delivers one, so more blocks in
+/// flight buy no speed, and every one of them is thrown away when the host
+/// stops the stream. See `serve.Options.stream_ahead_blocks`.
+const DEFAULT_STREAM_AHEAD: u8 = 4;
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     var args = std.process.Args.Iterator.init(init.minimal.args);
@@ -59,6 +65,7 @@ pub fn main(init: std.process.Init) !void {
     var stats = false;
     var read_ahead: u16 = DEFAULT_READ_AHEAD;
     var batch: u8 = serve.PUSH_BATCH_BLOCKS;
+    var stream_ahead: u8 = DEFAULT_STREAM_AHEAD;
     while (args.next()) |a| {
         if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) {
             return usage(io, null);
@@ -75,6 +82,10 @@ pub fn main(init: std.process.Init) !void {
             if (batch == 0 or batch > serve.PUSH_BATCH_BLOCKS) {
                 return usage(io, "--batch= must name 1 to 16 blocks");
             }
+        } else if (std.mem.startsWith(u8, a, "--stream-ahead=")) {
+            const text = a["--stream-ahead=".len..];
+            stream_ahead = std.fmt.parseInt(u8, text, 10) catch
+                return usage(io, "--stream-ahead= needs a whole number of blocks");
         } else if (std.mem.startsWith(u8, a, "--read-ahead=")) {
             const text = a["--read-ahead=".len..];
             read_ahead = std.fmt.parseInt(u16, text, 10) catch
@@ -166,6 +177,7 @@ pub fn main(init: std.process.Init) !void {
             .stats = stats,
             .read_ahead = read_ahead,
             .batch = batch,
+            .stream_ahead = stream_ahead,
         }) catch |e| fail(out, e);
     } else {
         cmdInfo(device, out) catch |e| fail(out, e);
@@ -493,6 +505,8 @@ const ServeOptions = struct {
     read_ahead: u16 = DEFAULT_READ_AHEAD,
     /// Blocks that one transport transaction may carry.
     batch: u8 = serve.PUSH_BATCH_BLOCKS,
+    /// Blocks of a stream that may wait on the card at once.
+    stream_ahead: u8 = DEFAULT_STREAM_AHEAD,
 };
 
 /// Set by the stop signal handler.
@@ -568,6 +582,7 @@ fn cmdServe(
         .options = .{
             .read_ahead = options.read_ahead,
             .max_batch_blocks = options.batch,
+            .stream_ahead_blocks = options.stream_ahead,
             // The CLI drives real silicon, where a read of DATA_IN_COUNT
             // is a USB round trip and the channel drains on the SD clock.
             // See `serve.CLI_SPACE_POLL_WAIT_US`.
@@ -1074,7 +1089,7 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\           size. --grow only ever makes an image larger.
         \\
         \\  serve <image> [--ro] [--grow] [--stats] [--read-ahead=N]
-        \\           [--batch=N]
+        \\           [--batch=N] [--stream-ahead=N]
         \\           back the emulated card with a disk image. The command
         \\           sets the capacity from the size of the image, turns the
         \\           card on, and then answers every block that the card
@@ -1101,6 +1116,11 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\           --batch=N caps the blocks that ONE USB transfer
         \\           carries, 1 to 16. It is a way to tell a fault of the
         \\           link from a fault of the policy, not a tuning knob.
+        \\
+        \\           --stream-ahead=N caps the blocks of a multiple block
+        \\           read that wait on the card at once. The default is 4.
+        \\           A host that stops the read throws those blocks away,
+        \\           so a larger number wastes USB time. 0 removes the cap.
         \\
         \\
     , .{});
