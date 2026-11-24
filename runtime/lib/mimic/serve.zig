@@ -528,6 +528,11 @@ pub const Server = struct {
     /// failure, so the CLI always gives a writer here. A caller that has no
     /// writer passes null and reads `stats.refused` instead.
     log: ?*Io.Writer = null,
+    /// One line for each record the card posts, or null for none. The
+    /// line is `<kind> <op> <lba> <blocks> <seq>`, where kind is `r` for a
+    /// record the loop takes and `c` for the next chunk of a stream that
+    /// it carries on in place. `mimic-cli serve --trace=FILE` sets it.
+    trace: ?*Io.Writer = null,
     stats: Stats = .{},
 
     /// Words that DATA_IN was last known to accept.
@@ -850,8 +855,20 @@ pub const Server = struct {
         last.* = seq;
     }
 
+    fn traceRecord(self: *Server, kind: u8, request: Request) !void {
+        const out = self.trace orelse return;
+        try out.print("{c} {d} {d} {d} {d}\n", .{
+            kind,
+            request.op,
+            request.lba,
+            request.blocks,
+            request.seq,
+        });
+    }
+
     fn serveRequest(self: *Server, request: Request, still_pending: u32) !bool {
         self.stats.requests += 1;
+        try self.traceRecord('r', request);
         // A generation the card did not have before. CMD0 advances it
         // after the card invalidates every cache line, and no command of
         // the SD bus reaches this side, so this is the only news of it.
@@ -1092,6 +1109,7 @@ pub const Server = struct {
                     self.stats.requests += 1;
                     self.stats.streams_continued += 1;
                     self.countLostRecords(.read_blocks, next_record.seq);
+                    try self.traceRecord('c', next_record);
                     tag = next_record.seq;
                     chunk_end = @as(u64, next_record.lba) + next_record.blocks;
                     // The walk goes on, so the read ahead window follows

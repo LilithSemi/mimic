@@ -66,6 +66,7 @@ pub fn main(init: std.process.Init) !void {
     var read_ahead: u16 = DEFAULT_READ_AHEAD;
     var batch: u8 = serve.PUSH_BATCH_BLOCKS;
     var stream_ahead: u8 = DEFAULT_STREAM_AHEAD;
+    var trace_path: ?[]const u8 = null;
     while (args.next()) |a| {
         if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) {
             return usage(io, null);
@@ -82,6 +83,8 @@ pub fn main(init: std.process.Init) !void {
             if (batch == 0 or batch > serve.PUSH_BATCH_BLOCKS) {
                 return usage(io, "--batch= must name 1 to 16 blocks");
             }
+        } else if (std.mem.startsWith(u8, a, "--trace=")) {
+            trace_path = a["--trace=".len..];
         } else if (std.mem.startsWith(u8, a, "--stream-ahead=")) {
             const text = a["--stream-ahead=".len..];
             stream_ahead = std.fmt.parseInt(u8, text, 10) catch
@@ -178,6 +181,7 @@ pub fn main(init: std.process.Init) !void {
             .read_ahead = read_ahead,
             .batch = batch,
             .stream_ahead = stream_ahead,
+            .trace_path = trace_path,
         }) catch |e| fail(out, e);
     } else {
         cmdInfo(device, out) catch |e| fail(out, e);
@@ -507,6 +511,8 @@ const ServeOptions = struct {
     batch: u8 = serve.PUSH_BATCH_BLOCKS,
     /// Blocks of a stream that may wait on the card at once.
     stream_ahead: u8 = DEFAULT_STREAM_AHEAD,
+    /// File that takes one line per record, or null for none.
+    trace_path: ?[]const u8 = null,
 };
 
 /// Set by the stop signal handler.
@@ -590,6 +596,17 @@ fn cmdServe(
         },
     };
     try server.publishCapacity();
+
+    var trace_buf: [4096]u8 = undefined;
+    var trace_file: ?Io.File = null;
+    defer if (trace_file) |t| t.close(io);
+    var trace_writer: Io.File.Writer = undefined;
+    if (options.trace_path) |trace_path| {
+        trace_file = try Io.Dir.cwd().createFile(io, trace_path, .{});
+        trace_writer = trace_file.?.writer(io, &trace_buf);
+        server.trace = &trace_writer.interface;
+    }
+    defer if (server.trace) |t| t.flush() catch {};
 
     // The line count of the card cache is a build parameter of the
     // gateware, so it is READ and never assumed. The host model of what
@@ -1089,7 +1106,7 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\           size. --grow only ever makes an image larger.
         \\
         \\  serve <image> [--ro] [--grow] [--stats] [--read-ahead=N]
-        \\           [--batch=N] [--stream-ahead=N]
+        \\           [--batch=N] [--stream-ahead=N] [--trace=FILE]
         \\           back the emulated card with a disk image. The command
         \\           sets the capacity from the size of the image, turns the
         \\           card on, and then answers every block that the card
@@ -1121,6 +1138,10 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\           read that wait on the card at once. The default is 4.
         \\           A host that stops the read throws those blocks away,
         \\           so a larger number wastes USB time. 0 removes the cap.
+        \\
+        \\           --trace=FILE writes one line per record the card
+        \\           posts: kind (r a record, c the next chunk of a
+        \\           stream), op, lba, blocks and sequence tag.
         \\
         \\
     , .{});
