@@ -57,6 +57,7 @@ _setUp() async {
   // The data transmit path is off in this bench. An input that
   // nothing drives holds X, and the X would reach DAT0.
   dut.input('dat_tx_start').srcConnection! <= Const(0);
+  dut.input('dat_tx_abort').srcConnection! <= Const(0);
   dut.input('dat_tx_byte').srcConnection! <= Const(0, width: 8);
   dut.input('dat_tx_len').srcConnection! <=
       Const(sdBlockBytes, width: sdDataTxLenBits);

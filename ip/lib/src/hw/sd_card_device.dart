@@ -653,6 +653,10 @@ class MimicSdCardDevice extends BridgeModule {
     final regBusy = regTx.output('busy').named('reg_tx_busy');
     link.input('dat_tx_start').srcConnection! <=
         (readPath.output('tx_start') | regTx.output('tx_start'));
+    // CMD12 stops a block that is going out on DAT, the way it does on a
+    // real card. The state machine pulses `read_abort` when the command
+    // takes the card out of the data state.
+    link.input('dat_tx_abort').srcConnection! <= fsm.output('read_abort');
     link.input('dat_tx_byte').srcConnection! <=
         mux(regBusy, regTx.output('tx_byte'), readPath.output('tx_byte'));
     link.input('dat_tx_len').srcConnection! <=

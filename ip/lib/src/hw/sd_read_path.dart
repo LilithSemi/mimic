@@ -140,25 +140,16 @@ const int sdStreamRecordBlocks = 32;
 /// SD clocks the card leaves between the end bit of one block of a stream
 /// and the start bit of the next.
 ///
-/// A chunk record puts the next block on the channel before the card asks
-/// for it, so the card could open that block on the clock after the end
-/// bit of the block before it. The gap is where the host puts the CMD12
-/// that stops the stream, and the number is what that command needs.
+/// A host controller sends the CMD12 that stops the stream about 56 clocks
+/// after the end bit of the last block it wants, and the gap lets the card
+/// read that abort while it is still waiting, so it opens no block that the
+/// host does not want.
 ///
-/// A command is 48 bits and a host leaves 8 clocks in front of it, which
-/// are `sdCommandBits` and `sdCommandGapClocks` of the link. A CMD12 that
-/// a host controller sends the moment it has the last block it wants is
-/// therefore DECODED 56 clocks after the end bit. 96 clocks covers that with room, so the
-/// card reads the abort while it is still WAITING and never opens a block
-/// the host does not want.
-///
-/// That matters because a block the card has opened cannot be stopped: the
-/// link has no way to end a frame early, so the card would hold the read
-/// path for the whole 4114 clocks and answer the NEXT read of the host
-/// with R1 ERROR. A host that sends CMD12 from software, later than this
-/// gap, can still meet that window. It is rare on this board because the
-/// SD bus drains a block three times faster than USB full speed delivers
-/// one, so the card is nearly always waiting and not sending.
+/// A host that sends CMD12 later, such as a software driver, meets a card
+/// that has opened the next block. CMD12 then cuts that block: the link
+/// releases DAT right after the command, the read path takes the rest of
+/// the block off the data channel and goes idle, and the next CMD18 is
+/// accepted. See `dat_tx_abort` of [MimicSdLink].
 ///
 /// 96 clocks is 2.3 percent of the 4114 clocks that one block takes.
 const int sdStreamGapClocks = 96;
@@ -942,10 +933,15 @@ class MimicSdReadPath extends BridgeModule {
     // The card leaves the lookup or the wait as soon as the runtime drops
     // CTRL bit 0 or the state machine aborts the read. Both release a host
     // that is waiting for a block, and neither waits out the timeout.
-    final release = (inWait & (input('abort') | ~enable)).named('read_release');
-    final releaseLookup = (inLookup & (input('abort') | ~enable)).named(
-      'read_release_lookup',
+    //
+    // The abort is also read from `abortSeen`. A CMD12 that arrives while
+    // the card takes a block off the channel is a pulse that nothing here
+    // reads, and the register is the only trace of it.
+    final release = (inWait & (input('abort') | abortSeen | ~enable)).named(
+      'read_release',
     );
+    final releaseLookup = (inLookup & (input('abort') | abortSeen | ~enable))
+        .named('read_release_lookup');
     final lookupLba = mux(
       startNow,
       input('lba'),
@@ -1411,7 +1407,13 @@ class MimicSdReadPath extends BridgeModule {
               then: [
                 // A block that came from the cache took nothing off the
                 // data channel, so it retires nothing there.
-                If(~fromCache, then: [consumedPulse < Const(1)]),
+                //
+                // A block that CMD12 cut leaves words on the channel. The
+                // drop below takes them off and counts the block.
+                If(
+                  ~fromCache & wordsLeft.eq(zeroWords),
+                  then: [consumedPulse < Const(1)],
+                ),
                 fillActive < Const(0),
                 timer < zeroTicks,
                 If(
@@ -1474,7 +1476,19 @@ class MimicSdReadPath extends BridgeModule {
                     fromCache < Const(0),
                   ],
                   orElse: [
-                    state < stateIdle,
+                    // A block that CMD12 cut still has words on the data
+                    // channel. They go nowhere, and the cache line of a
+                    // fill that was running stays invalid. The drop does
+                    // not hold the card busy: a read may start in it.
+                    state <
+                        mux(
+                          ~fromCache & wordsLeft.neq(zeroWords),
+                          stateDrop,
+                          stateIdle,
+                        ),
+                    dropToWait < Const(0),
+                    dropToLookup < Const(0),
+                    dropFill < Const(0),
                     donePulse < Const(1),
                     multiReg < Const(0),
                     fromCache < Const(0),

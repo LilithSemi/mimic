@@ -268,6 +268,11 @@ Logic _crc16Step(Logic state, Logic bit, String name) {
 /// no way to say wait inside one. The caller must therefore hold the whole
 /// payload before it starts.
 ///
+/// A frame can end early. A pulse on `dat_tx_abort` while a frame is going
+/// out releases DAT on the next clock, without the rest of the payload and
+/// without the CRC16, and `dat_tx_done` pulses in the same clock. A real
+/// card does this when CMD12 stops a read.
+///
 /// The transmitter and the status token share DAT0. The link drops a pulse
 /// on `dat_tx_start` that comes while the token is going out, and a pulse
 /// on `dat_status_send` that comes while a block is going out, so the two
@@ -327,6 +332,7 @@ class MimicSdLink extends BridgeModule {
     createPort('dat_tx_start', PortDirection.input);
     createPort('dat_tx_byte', PortDirection.input, width: 8);
     createPort('dat_tx_len', PortDirection.input, width: sdDataTxLenBits);
+    createPort('dat_tx_abort', PortDirection.input);
     if (busWidth > 1) createPort('dat_wide', PortDirection.input);
 
     addOutput('cmd_out');
@@ -1148,6 +1154,14 @@ class MimicSdLink extends BridgeModule {
           ]),
           CaseItem(dtEndPhase, [dtPhase < dtIdlePhase, dtDonePulse < Const(1)]),
         ]),
+        // A pulse on `dat_tx_abort` ends a frame that is going out. The line
+        // is released on the next clock and `dat_tx_done` pulses, so the
+        // caller sees the frame end the way it sees a whole one. It comes
+        // last, so it wins over every step above.
+        If(
+          input('dat_tx_abort') & dtActive,
+          then: [dtPhase < dtIdlePhase, dtDonePulse < Const(1)],
+        ),
       ],
     );
 
