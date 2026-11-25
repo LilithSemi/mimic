@@ -69,9 +69,13 @@ drives the EN pin of the 3.3 V buck (U2).
 Examine these items before fabrication:
 
 - DP/DM pair. The coupled part on F.Cu has 0.22 mm traces with a 0.12 mm
-  gap above 0.21 mm of 7628 prepreg (JLC04161H-7628 stack-up). An IPC-2141
-  estimate gives approximately 91 ohm differential. Confirm the impedance
-  with the fabricator calculator.
+  gap above 0.21 mm of 7628 prepreg (JLC04161H-7628 stack-up). A 2D field
+  solve gives 84 to 88.5 ohm differential, which is in the USB 2.0 limit
+  of 90 ohm +-15%. The value changes with the solder mask model and the
+  F.Cu GND pour 0.2 mm from the pair. The B.Cu part (about 5 mm, through
+  U13) is not coupled, about 65 ohm per line. It is too short to matter
+  at the 500 ps USB High Speed edge. The U13 capacitance is the largest
+  discontinuity on the pair.
 - Power order. DS00001792A section 5.5.3 requires VDD18 to be stable
   before VDDIO. The EN pin of the 3.3 V buck (U2) connects to P1.8V, so
   the 3.3 V rail, which supplies VDDIO, starts only after VDD18 is above
@@ -117,6 +121,17 @@ the BOM with this command:
 kicad-cli sch export bom --fields 'Reference,Value,Footprint,Mfg,PN,LCSC' \
   --output mimic-bom.csv pcb/mimic.kicad_sch
 ```
+
+## Fabrication
+
+Order the JLC04161H-7628 stack-up with impedance control:
+
+- Differential pair USBC_DP/USBC_DN on L1 (F.Cu), reference L2 (In1 GND),
+  target 90 ohm +-10%.
+- Routed as 0.22 mm traces with a 0.12 mm gap, with coplanar GND 0.2 mm
+  from the pair. JLC can adjust the width.
+- Do not list the B.Cu part of the pair. It is not a controlled pair.
+- Tent or plug the four GND vias in the U14 exposed pad.
 
 ## Origin and modifications
 
