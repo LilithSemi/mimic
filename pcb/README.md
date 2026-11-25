@@ -60,10 +60,9 @@ ball J16 (PCLKT2_1).
 
 U15 is a TPS7A2018 1.8 V LDO (VIN 1.6 V to 6.0 V). It uses the same
 footprint, pinout and enable net as the 2.5 V TPS7A0325 LDO (U10). Its input
-is VSYS (USB VBUS, 5 V), so the
-1.8 V rail does not wait for the 3.3 V rail. C89 (4.7 uF) is on the VSYS input
-and C90 (4.7 uF) is on the 1.8 V output. The PHY is the only load on this
-rail.
+is VSYS (USB VBUS, 5 V). C89 (4.7 uF) is on the VSYS input and C90 (4.7 uF)
+is on the 1.8 V output. The PHY VDD18 pins load this rail, and it also
+drives the EN pin of the 3.3 V buck (U2).
 
 ### Review items
 
@@ -74,12 +73,19 @@ Examine these items before fabrication:
   estimate gives approximately 91 ohm differential. Confirm the impedance
   with the fabricator calculator.
 - Power order. DS00001792A section 5.5.3 requires VDD18 to be stable
-  before VDDIO. U15 takes VSYS and both regulators share the EN net, so the
-  LDO is expected to reach 1.8 V before the 3.3 V buck ends its soft
-  start. Measure this order on the first boards.
-- VSYS capacitance. VSYS has 24.7 uF (C6, C7 and C77). This is more than
-  the 10 uF limit for a USB device. The value comes from OrangeCrab and
-  this change does not touch it.
+  before VDDIO. The EN pin of the 3.3 V buck (U2) connects to P1.8V, so
+  the 3.3 V rail, which supplies VDDIO, starts only after VDD18 is above
+  1.2 V (the maximum EN high threshold of U2). U1, U10 and U15 stay on the
+  EN net.
+- Power-down. At unplug, U15 (P variant, active discharge) pulls P1.8V
+  down through 150 ohm. This is faster than P3.3V decays, so VDDIO can be
+  above VDD18 = 0 V for a short time. This short power-down transient is
+  accepted. Examine it on the first boards.
+- VSYS capacitance. VSYS has 29.4 uF (C6, C7, C77 and C89). This is more
+  than the 10 uF limit for a USB device. C6, C7 and C77 come from
+  OrangeCrab.
+- VCCAUX supply. U10 (TPS7A03) supplies VCCAUX, which also supplies the
+  FPGA PLLs. Monitor the PLL jitter on the first boards.
 - USB return path. The DP/DM pair changes from F.Cu (In1 GND reference) to
   B.Cu (In2 3.3 V reference) at the vias beside U13. C91 (100 nF) beside
   these vias connects 3.3 V to GND for the return current.

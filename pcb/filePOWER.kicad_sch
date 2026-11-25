@@ -1094,7 +1094,7 @@
 	(global_label "GND" (shape input) (at 38.10 96.52 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "d3184286-9aae-4533-a958-18c17604577b") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 38.10 96.52 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(global_label "VSYS" (shape input) (at 30.48 86.36 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "8a5ac6ac-e39c-4ff5-a817-652c3789606c") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 30.48 86.36 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(global_label "SW_3V3" (shape input) (at 45.72 86.36 0) (effects (font (size 1.27 1.27)) (justify left)) (uuid "e7c6648d-0085-4946-b8bb-dcb9570f42a2") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 45.72 86.36 0) (hide yes) (effects (font (size 1.27 1.27)))))
-	(global_label "EN" (shape input) (at 30.48 88.90 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "0175b8c1-c44f-4871-8d55-6d2459353778") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 30.48 88.90 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(global_label "P1.8V" (shape input) (at 30.48 88.90 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "0175b8c1-c44f-4871-8d55-6d2459353778") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 30.48 88.90 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(no_connect (at 43.18 91.44) (uuid "685f41bb-8e06-47ec-851c-3a1b79f98174"))
 	(symbol (lib_id "Device:L") (at 68.58 88.90 0) (unit 1) (body_style 1)
 		(exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (dnp no)
