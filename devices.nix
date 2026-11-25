@@ -14,14 +14,6 @@
     };
   };
 
-  mimic-v1 = {
-    kind = "fpga";
-    ip = mimic-ip.mkDevice {
-      name = "mimic-v1";
-      board = "mimic-v1";
-    };
-  };
-
   sky130-hd = {
     kind = "pdk";
     ip = mimic-ip.mkDevice {
