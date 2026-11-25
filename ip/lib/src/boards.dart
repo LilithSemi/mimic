@@ -15,11 +15,14 @@ const HarborBoard mimicV1Board = HarborBoard(
   oscillatorHz: 48000000,
   pins: {
     'clk': 'K16 LVCMOS33',
-    // The user button, active low. It also drives PROGRAMN, the way the
-    // OrangeCrab wires it, so a long press reloads the configuration.
-    'rst_n': 'M8 LVCMOS33',
-    // Configuration flash. The clock comes from USRMCLK and has no pad.
-    'spi_cs_n': 'R8 LVCMOS33',
+    // FPGA_RESET, active low, with a pull-up. The same net drives PROGRAMN
+    // and comes out on the JTAG pads. It is read on a plain IO, because
+    // DOUT drives high during configuration.
+    'rst_n': 'P1 LVCMOS33',
+    // Configuration flash. The clock comes from USRMCLK and has no pad. The
+    // chip select is CSSPIN, the pin that selects the flash in Master SPI
+    // boot. CSN is used only in the parallel modes.
+    'spi_cs_n': 'N8 LVCMOS33',
     'spi_io[0]': 'T8 LVCMOS33',
     'spi_io[1]': 'T7 LVCMOS33',
     'spi_io[2]': 'M7 LVCMOS33',
