@@ -2390,7 +2390,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 207.772 111.76 90)
 			(hide yes)
 			(show_name no)
@@ -2433,7 +2433,7 @@
 				)
 			)
 		)
-		(property "PN" "RC0201FR-074K7L"
+		(property "PN" "RC0402FR-074K7L"
 			(at 209.55 111.76 0)
 			(hide yes)
 			(show_name no)
@@ -2956,7 +2956,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 200.152 73.66 90)
 			(hide yes)
 			(show_name no)
@@ -2999,7 +2999,7 @@
 				)
 			)
 		)
-		(property "PN" "RC0201FR-071K5L"
+		(property "PN" "RC0402FR-071K5L"
 			(at 201.93 73.66 0)
 			(hide yes)
 			(show_name no)
@@ -3059,7 +3059,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 183.642 135.89 90)
 			(hide yes)
 			(show_name no)
@@ -3102,7 +3102,7 @@
 				)
 			)
 		)
-		(property "PN" "RC0201FR-074K7L"
+		(property "PN" "RC0402FR-074K7L"
 			(at 185.42 135.89 0)
 			(hide yes)
 			(show_name no)
@@ -3315,7 +3315,7 @@
 	(no_connect (at 469.90 252.73) (uuid "04ab2a1d-f6c2-45f5-a04d-0707e0e0d238"))
 	(no_connect (at 469.90 255.27) (uuid "ff0c70de-e6a5-4841-81f7-9b60862d26f4"))
 	(no_connect (at 469.90 257.81) (uuid "4551bbdb-f8ca-4183-8df6-39f92bac8f4e"))
-	(no_connect (at 469.90 260.35) (uuid "afda63b2-5869-438f-b0ea-a2cbfb98ff50"))
+	(no_connect (at 142.24 356.87) (uuid "afda63b2-5869-438f-b0ea-a2cbfb98ff50"))
 	(no_connect (at 469.90 262.89) (uuid "9c6cdfd3-a4d3-4ada-bee6-407c5aad6b89"))
 	(no_connect (at 469.90 265.43) (uuid "66663e99-b36f-4932-9e4e-246248f1b565"))
 	(no_connect (at 469.90 267.97) (uuid "30295ea2-f5c8-438d-b933-1b2c87e7b71a"))
@@ -3397,10 +3397,10 @@
 	(global_label "QSPI_D2" (shape input) (at 142.24 341.63 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "65d5a850-307c-4993-8c13-9076af2f4b9e") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 142.24 341.63 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(global_label "SPI_CONFIG_MISO" (shape input) (at 142.24 344.17 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "5de6ea06-8e02-405b-863c-270b29490592") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 142.24 344.17 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(global_label "SPI_CONFIG_MOSI" (shape input) (at 142.24 346.71 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "25b7f2ee-f756-46c7-bfbb-4d849b28f7ec") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 142.24 346.71 0) (hide yes) (effects (font (size 1.27 1.27)))))
-	(global_label "SPI_CONFIG_SS" (shape input) (at 142.24 349.25 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "d0edd0e3-2602-4267-9d12-e79ea825d761") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 142.24 349.25 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(global_label "SPI_CONFIG_SS" (shape input) (at 142.24 354.33 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "d0edd0e3-2602-4267-9d12-e79ea825d761") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 142.24 354.33 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(no_connect (at 142.24 351.79) (uuid "984d7d86-d116-4749-81de-e9e3f1ed6701"))
-	(no_connect (at 142.24 354.33) (uuid "34eacbd2-9079-4089-80a1-fe6e85075457"))
-	(global_label "FPGA_RESET" (shape input) (at 142.24 356.87 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "f63f34e7-0015-4cec-8c81-34e7e09b4df5") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 142.24 356.87 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(no_connect (at 142.24 349.25) (uuid "34eacbd2-9079-4089-80a1-fe6e85075457"))
+	(global_label "FPGA_RESET" (shape input) (at 469.90 260.35 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "f63f34e7-0015-4cec-8c81-34e7e09b4df5") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 469.90 260.35 0) (hide yes) (effects (font (size 1.27 1.27)))))
 	(no_connect (at 142.24 359.41) (uuid "df2166be-4ca8-462d-878e-47cd3dc8bef7"))
 	(symbol (lib_id "mimic:LFE5U-25F-6BG256C") (at 269.24 328.93 0) (unit 8) (body_style 1)
 		(exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (dnp no)
@@ -3488,10 +3488,10 @@
 		(uuid "7f19cba8-2f13-483b-a362-9d2953912285")
 		(property "Reference" "R32" (at 271.78 113.03 0) (effects (font (size 1.27 1.27)) (justify left)))
 		(property "Value" "10k" (at 271.78 115.57 0) (effects (font (size 1.27 1.27)) (justify left)))
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric" (at 284.48 120.65 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 284.48 120.65 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Datasheet" "" (at 284.48 120.65 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Mfg" "Yageo" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "PN" "RC0201FR-0710KL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "RC0402FR-0710KL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005ab8acb7" (reference "R32") (unit 1))))
 	)
 	(global_label "P3.3V" (shape input) (at 284.48 116.84 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "db3a7528-94ed-48df-ac6a-cccfb78698ea") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 284.48 116.84 0) (hide yes) (effects (font (size 1.27 1.27)))))

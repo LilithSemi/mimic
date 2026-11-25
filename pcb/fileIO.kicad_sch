@@ -1521,6 +1521,469 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "mimic:USBLC6-2SC6"
+			(pin_names
+				(hide yes)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(in_pos_files yes)
+			(duplicate_pin_numbers_are_jumpers no)
+			(property "Reference" "U"
+				(at 0.635 5.715 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Value" "USBLC6-2SC6"
+				(at 0.635 3.81 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Footprint" "Package_TO_SOT_SMD:SOT-23-6"
+				(at 1.016 -6.731 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+						(italic yes)
+					)
+					(justify left)
+				)
+			)
+			(property "Datasheet" "https://www.st.com/resource/en/datasheet/usblc6-2.pdf"
+				(at 1.016 -8.636 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Description" "Very low capacitance ESD protection diode, 2 data-line, SOT-666"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_keywords" "usb ethernet video"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_fp_filters" "SOT?666*"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(symbol "USBLC6-2SC6_0_0"
+				(circle
+					(center -1.524 0)
+					(radius 0.0001)
+					(stroke
+						(width 0.508)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center -0.508 2.032)
+					(radius 0.0001)
+					(stroke
+						(width 0.508)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center -0.508 -4.572)
+					(radius 0.0001)
+					(stroke
+						(width 0.508)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 0.508 2.032)
+					(radius 0.0001)
+					(stroke
+						(width 0.508)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 0.508 -4.572)
+					(radius 0.0001)
+					(stroke
+						(width 0.508)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 1.524 -2.54)
+					(radius 0.0001)
+					(stroke
+						(width 0.508)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "USBLC6-2SC6_0_1"
+				(polyline
+					(pts
+						(xy -2.54 0) (xy 2.54 0)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -2.54 -2.54) (xy 2.54 -2.54)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -2.032 0.508) (xy -1.016 0.508) (xy -1.524 1.524) (xy -2.032 0.508)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -2.032 -3.048) (xy -1.016 -3.048)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -1.016 1.524) (xy -2.032 1.524)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -1.016 -4.064) (xy -2.032 -4.064) (xy -1.524 -3.048) (xy -1.016 -4.064)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -0.508 -1.143) (xy -0.508 -0.762) (xy 0.508 -0.762)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 0 2.54) (xy -0.508 2.032) (xy 0.508 2.032) (xy 0 1.524) (xy 0 -4.064) (xy -0.508 -4.572) (xy 0.508 -4.572)
+						(xy 0 -5.08)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 0.508 -1.778) (xy -0.508 -1.778) (xy 0 -0.762) (xy 0.508 -1.778)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 1.016 1.524) (xy 2.032 1.524)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 1.016 -3.048) (xy 2.032 -3.048)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 2.032 0.508) (xy 1.016 0.508) (xy 1.524 1.524) (xy 2.032 0.508)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 2.032 -4.064) (xy 1.016 -4.064) (xy 1.524 -3.048) (xy 2.032 -4.064)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "USBLC6-2SC6_1_1"
+				(rectangle
+					(start -2.54 2.794)
+					(end 2.54 -5.334)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+				(polyline
+					(pts
+						(xy -0.508 2.032) (xy -1.524 2.032) (xy -1.524 -4.572) (xy -0.508 -4.572)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 0.508 -4.572) (xy 1.524 -4.572) (xy 1.524 2.032) (xy 0.508 2.032)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(pin passive line
+					(at -5.08 0 0)
+					(length 2.54)
+					(name "I/O1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 0 -7.62 90)
+					(length 2.54)
+					(name "GND"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at -5.08 -2.54 0)
+					(length 2.54)
+					(name "I/O2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 5.08 -2.54 180)
+					(length 2.54)
+					(name "I/O2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "4"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 0 5.08 270)
+					(length 2.54)
+					(name "VBUS"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "5"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 5.08 0 180)
+					(length 2.54)
+					(name "I/O1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "6"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 	)
 	(symbol (lib_id "Connector:USB_C_Receptacle_USB2.0_16P") (at 50.80 50.80 0) (unit 1) (body_style 1)
 		(exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (dnp no)
@@ -1555,10 +2018,10 @@
 		(uuid "27293d50-34ea-4f9c-80ee-9ef3e9fddc14")
 		(property "Reference" "R14" (at 99.06 49.53 0) (effects (font (size 1.27 1.27)) (justify left)))
 		(property "Value" "5.1k" (at 99.06 52.07 0) (effects (font (size 1.27 1.27)) (justify left)))
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric" (at 96.52 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 96.52 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Datasheet" "" (at 96.52 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Mfg" "Yageo" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "PN" "RC0201FR-075K1L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "RC0402FR-075K1L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "R14") (unit 1))))
 	)
 	(global_label "USBC_CC1" (shape input) (at 96.52 46.99 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "433192fb-0eb1-43bf-897c-1d7f3cc3b381") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 96.52 46.99 0) (hide yes) (effects (font (size 1.27 1.27)))))
@@ -1568,10 +2031,10 @@
 		(uuid "4cc922e2-37ea-4c4c-b983-b4b803e0dc8c")
 		(property "Reference" "R16" (at 144.78 49.53 0) (effects (font (size 1.27 1.27)) (justify left)))
 		(property "Value" "5.1k" (at 144.78 52.07 0) (effects (font (size 1.27 1.27)) (justify left)))
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric" (at 142.24 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 142.24 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Datasheet" "" (at 142.24 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Mfg" "Yageo" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "PN" "RC0201FR-075K1L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "RC0402FR-075K1L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "R16") (unit 1))))
 	)
 	(global_label "USBC_CC2" (shape input) (at 142.24 46.99 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "537d3abf-97f8-405e-a7aa-aa8614f2c2e6") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 142.24 46.99 0) (hide yes) (effects (font (size 1.27 1.27)))))
@@ -1581,10 +2044,10 @@
 		(uuid "887ae9ab-6f73-43fb-9575-951562a6f66c")
 		(property "Reference" "R21" (at 190.50 49.53 0) (effects (font (size 1.27 1.27)) (justify left)))
 		(property "Value" "20R" (at 190.50 52.07 0) (effects (font (size 1.27 1.27)) (justify left)))
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric" (at 187.96 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 187.96 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Datasheet" "" (at 187.96 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Mfg" "Yageo" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "PN" "RC0201FR-0720RL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "RC0402FR-0720RL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "R21") (unit 1))))
 	)
 	(global_label "USBC_DP" (shape input) (at 187.96 46.99 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "d1fec426-ad49-4bd5-82e8-314add7fe502") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 187.96 46.99 0) (hide yes) (effects (font (size 1.27 1.27)))))
@@ -1594,10 +2057,10 @@
 		(uuid "6e33cb28-f30b-4bfb-9516-65f4f601c847")
 		(property "Reference" "R29" (at 236.22 49.53 0) (effects (font (size 1.27 1.27)) (justify left)))
 		(property "Value" "20R" (at 236.22 52.07 0) (effects (font (size 1.27 1.27)) (justify left)))
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric" (at 233.68 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 233.68 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Datasheet" "" (at 233.68 50.80 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Mfg" "Yageo" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "PN" "RC0201FR-0720RL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "RC0402FR-0720RL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "R29") (unit 1))))
 	)
 	(global_label "USB_D-" (shape input) (at 233.68 46.99 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "14d29fd4-2942-4b9d-b2f8-d61832ab83a2") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 233.68 46.99 0) (hide yes) (effects (font (size 1.27 1.27)))))
@@ -1607,10 +2070,10 @@
 		(uuid "13f7c3dc-c017-43fb-b02d-876cf5bb239d")
 		(property "Reference" "R20" (at 53.34 95.25 0) (effects (font (size 1.27 1.27)) (justify left)))
 		(property "Value" "1.5k" (at 53.34 97.79 0) (effects (font (size 1.27 1.27)) (justify left)))
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric" (at 50.80 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 50.80 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Datasheet" "" (at 50.80 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Mfg" "Yageo" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "PN" "RC0201FR-071K5L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "RC0402FR-071K5L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "R20") (unit 1))))
 	)
 	(global_label "USB_D+" (shape input) (at 50.80 92.71 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "17373753-d792-42d1-86c8-ba984fff132e") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 50.80 92.71 0) (hide yes) (effects (font (size 1.27 1.27)))))
@@ -1635,10 +2098,10 @@
 		(uuid "8fa25439-8092-462b-ae70-1ef1d82dff48")
 		(property "Reference" "R22" (at 144.78 95.25 0) (effects (font (size 1.27 1.27)) (justify left)))
 		(property "Value" "1.5k" (at 144.78 97.79 0) (effects (font (size 1.27 1.27)) (justify left)))
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric" (at 142.24 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 142.24 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Datasheet" "" (at 142.24 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Mfg" "Yageo" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "PN" "RC0201FR-071K5L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "RC0402FR-071K5L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "R22") (unit 1))))
 	)
 	(global_label "LED_R" (shape input) (at 142.24 92.71 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "7bb6c99e-6746-42fc-a0be-738401c86132") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 142.24 92.71 0) (hide yes) (effects (font (size 1.27 1.27)))))
@@ -1648,10 +2111,10 @@
 		(uuid "87ee5ed5-4c55-4ff1-8bcc-0e408f16ddae")
 		(property "Reference" "R23" (at 190.50 95.25 0) (effects (font (size 1.27 1.27)) (justify left)))
 		(property "Value" "4.7k" (at 190.50 97.79 0) (effects (font (size 1.27 1.27)) (justify left)))
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric" (at 187.96 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 187.96 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Datasheet" "" (at 187.96 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Mfg" "Yageo" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "PN" "RC0201FR-074K7L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "RC0402FR-074K7L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "R23") (unit 1))))
 	)
 	(global_label "LED_G" (shape input) (at 187.96 92.71 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "33865200-23cc-447f-bf90-d2ea03c43f4d") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 187.96 92.71 0) (hide yes) (effects (font (size 1.27 1.27)))))
@@ -1661,10 +2124,10 @@
 		(uuid "0ac8ab52-9dde-45f5-b2c5-3afd6083f29a")
 		(property "Reference" "R24" (at 236.22 95.25 0) (effects (font (size 1.27 1.27)) (justify left)))
 		(property "Value" "3.57k" (at 236.22 97.79 0) (effects (font (size 1.27 1.27)) (justify left)))
-		(property "Footprint" "Resistor_SMD:R_0201_0603Metric" (at 233.68 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 233.68 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Datasheet" "" (at 233.68 96.52 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Mfg" "Yageo" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "PN" "RC0201FR-073K57L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "RC0402FR-073K57L" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "R24") (unit 1))))
 	)
 	(global_label "LED_B" (shape input) (at 233.68 92.71 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "db519db0-6940-4409-bf9f-e52b42c4c5d0") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 233.68 92.71 0) (hide yes) (effects (font (size 1.27 1.27)))))
@@ -1719,4 +2182,21 @@
 		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "TP32") (unit 1))))
 	)
 	(global_label "P1.1V" (shape input) (at 233.68 142.24 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "10646e44-32b2-4c34-9338-f2c715a83256") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 233.68 142.24 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(symbol (lib_id "mimic:USBLC6-2SC6") (at 254 63.5 0) (unit 1) (body_style 1)
+		(exclude_from_sim no) (in_bom yes) (on_board yes) (in_pos_files yes) (dnp no)
+		(uuid "21f969d5-7c5b-49bd-905f-f641a4dc18c4")
+		(property "Reference" "U13" (at 254 48.5 0) (effects (font (size 1.27 1.27))))
+		(property "Value" "USBLC6-2SC6" (at 254 78.5 0) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "Package_TO_SOT_SMD:SOT-23-6" (at 254 63.5 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Datasheet" "~" (at 254 63.5 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Mfg" "STMicroelectronics" (at 254 63.5 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "USBLC6-2SC6" (at 254 63.5 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(instances (project "mimic" (path "/a721fc77-faad-4442-9d2d-3560b8c1253d/00000000-0000-0000-0000-00005abc9a87" (reference "U13") (unit 1))))
+	)
+	(global_label "USBC_DP" (shape input) (at 248.92 63.5 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "a1c63cd2-119d-4645-bc0f-07dbc159787d") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 248.92 63.5 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(global_label "USBC_DP" (shape input) (at 259.08 63.5 0) (effects (font (size 1.27 1.27)) (justify left)) (uuid "9e7cbf53-9a48-4d70-8ce7-d5ed87484645") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 259.08 63.5 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(global_label "USBC_DN" (shape input) (at 248.92 66.04 180) (effects (font (size 1.27 1.27)) (justify right)) (uuid "0cb38187-4d72-4258-8153-56f2ce76c5b1") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 248.92 66.04 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(global_label "USBC_DN" (shape input) (at 259.08 66.04 0) (effects (font (size 1.27 1.27)) (justify left)) (uuid "359a8fad-836d-4567-8864-23eb4abb7f59") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 259.08 66.04 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(global_label "GND" (shape input) (at 254 71.12 270) (effects (font (size 1.27 1.27)) (justify right)) (uuid "6e70949d-f55d-4337-be50-50311b261db4") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 254 71.12 0) (hide yes) (effects (font (size 1.27 1.27)))))
+	(global_label "VSYS" (shape input) (at 254 58.42 90) (effects (font (size 1.27 1.27)) (justify left)) (uuid "136ab6ea-2835-49df-a456-acfa5345d437") (property "Intersheetrefs" "${INTERSHEET_REFS}" (at 254 58.42 0) (hide yes) (effects (font (size 1.27 1.27)))))
 )
