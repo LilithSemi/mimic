@@ -155,6 +155,13 @@ const List<String> mimicSdDatPinNames = [
   'sd_dat3',
 ];
 
+/// Name of the input that senses the VDD the host gives the card.
+///
+/// Only a board with the sense divider has this ball. On such a board the
+/// SoC drives CMD and DAT only while the input reads high, so a powered
+/// Mimic never pushes current into a host that is off.
+const String mimicSdVddSensePinName = 'sd_vdd_sense';
+
 /// Number of SD data lines of a board build.
 const int mimicSdBoardBusWidth = 4;
 
@@ -618,12 +625,23 @@ HarborSoC buildMimicSoc({
   late final Logic cmdLevel;
   late final List<Logic> datLevels;
   if (ownPads) {
+    // A board that senses the host VDD drives the lines only while the host
+    // is powered. The level is slow and the enables are not clocked, so it
+    // needs no synchroniser, and the SD clock stops when the host is off.
+    Logic? hostPowered;
+    if (board?.pins.containsKey(mimicSdVddSensePinName) ?? false) {
+      soc.createPort(mimicSdVddSensePinName, PortDirection.input);
+      hostPowered = soc.input(mimicSdVddSensePinName);
+    }
+    Logic gated(Logic enable) =>
+        hostPowered == null ? enable : enable & hostPowered;
+
     soc.createPort(mimicSdCmdPinName, PortDirection.inOut);
     final cmdPad = soc.inOut(mimicSdCmdPinName);
     cmdPad <=
         TriStateBuffer(
           card.output('sd_cmd_out'),
-          enable: card.output('sd_cmd_oe'),
+          enable: gated(card.output('sd_cmd_oe')),
         ).out;
     card.input('sd_cmd_in').srcConnection! <= cmdPad;
     cmdLevel = cmdPad;
@@ -635,7 +653,7 @@ HarborSoC buildMimicSoc({
       pad <=
           TriStateBuffer(
             card.output('sd_dat_out')[i],
-            enable: card.output('sd_dat_oe')[i],
+            enable: gated(card.output('sd_dat_oe')[i]),
           ).out;
       datLevels.add(pad);
     }
