@@ -292,9 +292,9 @@ fn cmdInfo(device: *Device, out: *Io.Writer) !void {
         @as(u1, @intFromBool(ctrl & sd.CTRL_READ_ONLY != 0)),
         @as(u1, @intFromBool(ctrl & sd.CTRL_CACHE_BYPASS != 0)),
     });
-    const card: sd.CardState = @enumFromInt(
+    const card: sd.CardState = @fromBackingInt(@intCast(
         words[sd.REG_CARD_STATE / 4] & sd.CARD_STATE_MASK,
-    );
+    ));
     try out.print("CARD_STATE: {s}\n", .{card.name()});
     const pins = words[sd.REG_DBG_PINS / 4];
     try out.print(
@@ -369,7 +369,7 @@ fn capacityPlan(io: Io, dir: Io.Dir, out: *Io.Writer, arg: []const u8, grow: boo
         };
     } else |_| {}
 
-    const mode: Io.File.OpenFlags.Mode = if (grow) .read_write else .read_only;
+    const mode: Io.Dir.OpenFileOptions.Mode = if (grow) .read_write else .read_only;
     const file = try dir.openFile(io, arg, .{ .mode = mode });
     defer file.close(io);
     var size = (try file.stat(io)).size;
@@ -549,7 +549,7 @@ fn installStopHandler() void {
 /// which also makes the open fail on an image that the operator cannot
 /// read, instead of failing later on the first block.
 fn openImage(io: Io, dir: Io.Dir, path: []const u8, read_only: bool) !Io.File {
-    const mode: Io.File.OpenFlags.Mode = if (read_only) .read_only else .read_write;
+    const mode: Io.Dir.OpenFileOptions.Mode = if (read_only) .read_only else .read_write;
     return dir.openFile(io, path, .{ .mode = mode });
 }
 

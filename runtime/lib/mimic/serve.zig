@@ -1223,7 +1223,7 @@ pub const Server = struct {
         lba: u64,
     ) bool {
         if (next.lba != lba) return false;
-        if (next.op != @intFromEnum(RequestOp.read_blocks)) return false;
+        if (next.op != @backingInt(RequestOp.read_blocks)) return false;
         if (next.blocks <= 1) return false;
         if (next.epoch != request.epoch) return false;
         // The same range check `serveRead` makes for a record of its own.
@@ -1790,7 +1790,7 @@ pub const Server = struct {
     /// and the host retries the read, which the loop then answers.
     fn noteCardState(self: *Server, word: u32) void {
         const state = word & sd.CARD_STATE_MASK;
-        self.card_in_data = state == @intFromEnum(sd.CardState.data);
+        self.card_in_data = state == @backingInt(sd.CardState.data);
         self.card_state_fresh = true;
     }
 
@@ -2093,7 +2093,7 @@ const FakeDevice = struct {
         words[sd.STATUS_REQ_HI] =
             if (self.req_read + 1 < self.req.len) self.req[self.req_read + 1] else 0;
         const stopped = if (self.abort_after_blocks) |n| self.tags_len >= n else false;
-        words[sd.STATUS_CARD_STATE] = @intFromEnum(
+        words[sd.STATUS_CARD_STATE] = @backingInt(
             if (stopped) sd.CardState.tran else sd.CardState.data,
         );
     }
@@ -2352,7 +2352,7 @@ fn writePatternImage(dir: Io.Dir, name: []const u8, blocks: u64) !void {
 
 fn openTestImage(dir: Io.Dir, name: []const u8, blocks: u64, read_only: bool) !Image {
     const io = std.testing.io;
-    const mode: Io.File.OpenFlags.Mode = if (read_only) .read_only else .read_write;
+    const mode: Io.Dir.OpenFileOptions.Mode = if (read_only) .read_only else .read_write;
     return .{
         .io = io,
         .file = try dir.openFile(io, name, .{ .mode = mode }),
@@ -2409,7 +2409,7 @@ fn expectImageUntouched(dir: Io.Dir, name: []const u8, lba: u64) !void {
 
 test "a request record packs the opcode, the tag, the block count and the LBA" {
     const request: Request = .{
-        .op = @intFromEnum(RequestOp.read_blocks),
+        .op = @backingInt(RequestOp.read_blocks),
         .blocks = 8,
         .lba = 0xDEADBEEF,
         .seq = 0x5A,

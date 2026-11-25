@@ -623,7 +623,7 @@ test "the CSR map sits on consecutive 4-byte steps" {
 test "every card state gives a name" {
     try std.testing.expectEqualStrings("idle", CardState.idle.name());
     try std.testing.expectEqualStrings("tran", CardState.tran.name());
-    const bad: CardState = @enumFromInt(15);
+    const bad: CardState = @fromBackingInt(@intCast(15));
     try std.testing.expectEqualStrings("unknown", bad.name());
 }
 
