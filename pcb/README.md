@@ -31,6 +31,73 @@ The current files establish a known OrangeCrab r0.2 baseline in a current
 KiCad format. Planned Mimic changes include removal of the DDR3L subsystem and
 adaptation of the SD connection for use as an emulated card interface.
 
+## USB PHY
+
+U14 is a Microchip USB3320C ULPI PHY. It connects the USB-C port to the
+FPGA. The PHY is on the bottom side because the QFN-32 does not fit between
+the BGA and the USB-C receptacle. The ID pin is not connected, so the PHY
+operates as a B-device.
+
+The PHY connects to these nets:
+
+- DP and DM go from the USB-C receptacle through the U13 ESD part to pins
+  18 and 19.
+- VBUS (pin 22) receives VSYS through R43 (10k).
+- RBIAS (pin 24) connects to GND through R42 (8.06k 1%).
+- VBAT, VDD33, VDDIO and REFSEL0 to REFSEL2 connect to +3.3 V. REFSEL = 111
+  selects a 24 MHz reference clock.
+- VDD18 (pins 28 and 30) connects to the +1.8 V rail.
+- CPEN, SPK_L, SPK_R, N/C, XO and ID are not connected.
+
+### Clocks
+
+OSC1 is a 24 MHz 3.3 V oscillator. Its output net REF_CLK goes to FPGA ball
+K16 (PCLKT2_0) and to the PHY REFCLK pin. The PHY supplies a 60 MHz ULPI
+clock on CLKOUT. This clock goes through R44 (33 ohm, near the PHY) to FPGA
+ball J16 (PCLKT2_1).
+
+### 1.8 V rail
+
+U15 is an NCP115 1.8 V LDO. It uses the same footprint and the same enable
+net as the 2.5 V LDO (U10). C89 (4.7 uF) is on the 3.3 V input and C90
+(4.7 uF) is on the 1.8 V output. The PHY is the only load on this rail.
+
+### Review items
+
+Examine these items before fabrication:
+
+- DP/DM pair. The coupled part on F.Cu has 0.22 mm traces with a 0.12 mm
+  gap above 0.21 mm of 7628 prepreg (JLC04161H-7628 stack-up). An IPC-2141
+  estimate gives approximately 91 ohm differential. Confirm the impedance
+  with the fabricator calculator.
+- REFSEL straps. REFSEL0, REFSEL1 and REFSEL2 must all connect to +3.3 V
+  (111, 24 MHz).
+- VDD18 decoupling. C86 and C87 (100 nF) must be near pins 28 and 30.
+- CLKOUT strap. The PHY reads CLKOUT at reset. R46 (10k) holds CLKOUT low.
+  The FPGA ball J16 is an input only and has no internal pull.
+- RESETB hold. R45 (10k) holds RESETB low until the FPGA drives
+  ULPI_RST_N.
+- PHY ID. The ID pin is not connected, so the board is a B-device only.
+- PHY side. U14 is on the bottom side. Make sure that the assembler can
+  place parts on both sides.
+- Exposed pad. The EP of U14 has 4 GND vias in the pad. Tell the
+  fabricator to tent or plug these vias to keep the solder in the pad.
+- U13 jumper pad groups. The board file gives U13 the entry
+  `jumper_pad_groups ("1" "6") ("3" "4")`. This entry tells DRC that DP
+  and DM go through the USBLC6 between these pads. Make sure that the
+  entry stays when the footprint is updated from the library.
+
+## Bill of materials
+
+The schematic symbols hold the BOM data in the `Mfg`, `PN` and `LCSC`
+fields. Only the USB PHY parts have an `LCSC` field at this time. Export
+the BOM with this command:
+
+```text
+kicad-cli sch export bom --fields 'Reference,Value,Footprint,Mfg,PN,LCSC' \
+  --output mimic-bom.csv pcb/mimic.kicad_sch
+```
+
 ## Origin and modifications
 
 This hardware design is based on

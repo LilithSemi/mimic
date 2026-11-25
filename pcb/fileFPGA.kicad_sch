@@ -2761,7 +2761,7 @@
 				)
 			)
 		)
-		(property "Value" "KC2520B24.0000C10E00"
+		(property "Value" "OT252024MJBA4SL"
 			(at 248.92 70.4342 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -2803,7 +2803,8 @@
 				)
 			)
 		)
-		(property "PN" "KC2520B24.0000C10E00"
+		(property "LCSC" "C669072" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "PN" "OT252024MJBA4SL"
 			(at 248.92 76.2 0)
 			(hide yes)
 			(show_name no)
@@ -2814,7 +2815,7 @@
 				)
 			)
 		)
-		(property "Mfg" "Kyocera International Inc. Electronic Components"
+		(property "Mfg" "YXC"
 			(at 248.92 76.2 0)
 			(hide yes)
 			(show_name no)

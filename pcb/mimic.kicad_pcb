@@ -297,7 +297,7 @@
 				)
 			)
 		)
-		(property "Value" "33R"
+		(property "Value" "33"
 			(at 0 1.17 90)
 			(layer "F.Fab")
 			(hide yes)
@@ -367,6 +367,7 @@
 				)
 			)
 		)
+		(property "LCSC" "C138002" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "e24bb297-865c-4123-90e9-9df60189b990") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/4decadfd-6d06-4a6b-889a-864ed868eb21")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -2034,6 +2035,7 @@
 				)
 			)
 		)
+		(property "LCSC" "C60490" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "3a20d883-8cc7-4ab1-b6ef-fe25d87a19d4") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/f882fc8a-0f66-4be4-9690-33dbd36cb98a")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -2635,7 +2637,7 @@
 				)
 			)
 		)
-		(property "Value" "KC2520B24.0000C10E00"
+		(property "Value" "OT252024MJBA4SL"
 			(at 0 -0.1 0)
 			(layer "F.Fab")
 			(hide yes)
@@ -2669,7 +2671,7 @@
 				)
 			)
 		)
-		(property "PN" "KC2520B24.0000C10E00"
+		(property "PN" "OT252024MJBA4SL"
 			(at 0 0 0)
 			(layer "F.SilkS")
 			(hide yes)
@@ -2681,7 +2683,7 @@
 				)
 			)
 		)
-		(property "Mfg" "Kyocera International Inc. Electronic Components"
+		(property "Mfg" "YXC"
 			(at 0 0 0)
 			(layer "F.SilkS")
 			(hide yes)
@@ -2693,6 +2695,7 @@
 				)
 			)
 		)
+		(property "LCSC" "C669072" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "b20a7b13-1a56-4813-8412-f067f7f674ed") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005ab8acb7/00000000-0000-0000-0000-00005d75a2df")
 		(attr through_hole)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -10210,6 +10213,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C276278" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "40f57b78-a4f2-4d1b-9039-289d97a23084") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/139093fe-4d89-4cca-bb1a-30b938509660")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -10890,6 +10894,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C60490" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "7a810960-92be-411b-915d-35117ce18053") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/9209ab18-4921-4ed6-98f9-dba9d6a94786")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -11243,6 +11248,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C603507" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "0b03e888-70d2-49d6-85b1-712f545b059b") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005d1738db/c9489426-a557-48c6-a66e-102b075f0adf")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -15651,7 +15657,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.16 90)
 			(layer "B.Fab")
 			(hide yes)
@@ -15727,6 +15733,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C71629" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "e45e7fb8-446c-464f-86d0-550eee62b67d") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/aa456cfd-db27-407d-97f6-381897328271")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -16083,6 +16090,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C60490" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "1d8ee2df-5a33-49b4-8a71-913f7587b710") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/71ef8771-b2df-4edb-b51e-61121bffc637")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -17075,7 +17083,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.16 90)
 			(layer "B.Fab")
 			(hide yes)
@@ -17151,6 +17159,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C71629" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "b68c9c86-8700-4342-8cd8-8ff8e138e7d9") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/3b655dd5-76ef-49b2-83e0-a3d631843662")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -19050,6 +19059,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C335105" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "8305343c-4753-4330-a499-4d69485f98d3") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005d1738db/2ba946c7-b82c-4af8-af48-748706efeed0")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -19587,6 +19597,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C77002" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "c9372e22-7db0-4772-b73f-dfae05262c76") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/af4c945b-cec7-4223-872b-416072948ccc")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -20876,7 +20887,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.16 90)
 			(layer "B.Fab")
 			(hide yes)
@@ -20952,6 +20963,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C71629" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "9b7c0d92-5c1c-4deb-a4ba-1a7921462dc0") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/dd915900-b161-4650-b90c-b9c786f0f3d2")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -21133,6 +21145,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C132156" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "42384afc-ff43-4f06-ab31-3f6dcf0dcb58") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005abc9a87/a8df0043-a3e6-489e-ba93-efb60678964f")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
@@ -22504,6 +22517,7 @@
 				(justify mirror)
 			)
 		)
+		(property "LCSC" "C335105" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "f0c43576-09b4-46e2-bec9-85c5c313d27f") (effects (font (size 1.27 1.27))))
 		(path "/00000000-0000-0000-0000-00005d1738db/654041b2-445d-4a76-ae67-a0e96e88325b")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
