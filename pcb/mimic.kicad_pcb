@@ -11280,7 +11280,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "NCP115-1.8"
+		(property "Value" "TPS7A2018"
 			(at 0 -1.5 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -11321,7 +11321,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Mfg" "onsemi"
+		(property "Mfg" "Texas Instruments"
 			(at 0 0 0)
 			(layer "B.SilkS")
 			(hide yes)
@@ -11334,7 +11334,7 @@
 				(justify mirror)
 			)
 		)
-		(property "PN" "NCP115CMX180TCG"
+		(property "PN" "TPS7A2018PDQNR"
 			(at 0 0 0)
 			(layer "B.SilkS")
 			(hide yes)
@@ -11347,7 +11347,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" "C603507"
+		(property "LCSC" "C2878130"
 			(at 0 0 0)
 			(layer "F.Fab")
 			(hide yes)
