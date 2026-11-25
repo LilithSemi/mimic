@@ -640,6 +640,13 @@ fn cmdServe(
             .{dropped},
         );
     }
+    const stale = try server.dropStaleRecords();
+    if (stale != 0) {
+        try out.print(
+            "WARNING: dropped {d} records that an earlier run left on the card\n",
+            .{stale},
+        );
+    }
 
     try server.enable();
     errdefer server.disable() catch {};

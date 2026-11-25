@@ -179,7 +179,14 @@ pub const Error = error{
     DataOutShort,
     /// The block count of the card does not fit the 32 bits of NUM_BLOCKS.
     NumBlocksTooLarge,
+    /// The request FIFO still reported records after `STALE_RECORD_LIMIT`
+    /// pops while the card was off.
+    StaleRecordsRemain,
 };
+
+/// Records that `Server.dropStaleRecords` pops before it gives up. Far more
+/// than the request FIFO of the card holds.
+pub const STALE_RECORD_LIMIT: u32 = 4096;
 
 /// The disk image that backs the card.
 pub const Image = struct {
@@ -762,6 +769,31 @@ pub const Server = struct {
             );
         }
         return dropped;
+    }
+
+    /// Pops every record that an earlier run left on the card and returns
+    /// how many there were. Call it while the card is off.
+    ///
+    /// No record of an earlier run can be answered: the host already gave
+    /// up on it when that run turned the card off. A write record is the
+    /// one that hurts, because `resyncWriteChannel` dropped the words of
+    /// its block, and the first pass would then wait for a block that never
+    /// comes.
+    pub fn dropStaleRecords(self: *Server) !u32 {
+        // The card is off and posts no new record, so the FIFO only empties.
+        // The bound keeps a count that the device reports wrong from making
+        // the loop run away.
+        var dropped: u32 = 0;
+        while (dropped < STALE_RECORD_LIMIT) {
+            const waiting = try self.csrRead(sd.REG_REQ_COUNT);
+            if (waiting == 0) return dropped;
+            var popped: u32 = 0;
+            while (popped < @min(waiting, self.options.max_requests_per_poll)) : (popped += 1) {
+                try self.csrWrite(sd.REG_REQ_POP, sd.REQ_POP_BIT);
+            }
+            dropped += popped;
+        }
+        return Error.StaleRecordsRemain;
     }
 
     /// Turns the card off and leaves the other control bits alone.
@@ -3791,6 +3823,28 @@ test "a write waits for the whole block instead of reading an empty channel" {
     const head = [_]u8{ 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 };
     try expectImageBlock(tmp.dir, "card.img", 3, &head, 0xA5);
     try std.testing.expectEqual(@as(u64, 1), server.stats.written);
+}
+
+test "records an earlier run left behind are dropped before the card turns on" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 8);
+    const image = try openTestImage(tmp.dir, "card.img", 8, false);
+    defer image.file.close(std.testing.io);
+
+    // The earlier run stopped between a write record and its block, so the
+    // record waits and the channel holds no block for it.
+    const request: Request = .{ .op = 0x02, .blocks = 1, .lba = 3, .seq = 0x33 };
+    var fake: FakeDevice = .{ .req = &request.words(), .req_count = 1 };
+    var server: Server = .{
+        .device = fake.device(),
+        .image = image,
+        .options = .{ .block_poll_limit = 8 },
+    };
+
+    try std.testing.expectEqual(@as(u32, 1), try server.dropStaleRecords());
+    try std.testing.expectEqual(@as(u32, 0), try server.servePending());
+    try std.testing.expectEqual(@as(usize, 0), fake.data_out_count_reads);
 }
 
 test "a write channel that never fills fails loudly and writes no zeros" {
