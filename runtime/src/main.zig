@@ -66,6 +66,7 @@ pub fn main(init: std.process.Init) !void {
     var read_ahead: u16 = DEFAULT_READ_AHEAD;
     var batch: u8 = serve.PUSH_BATCH_BLOCKS;
     var stream_ahead: u8 = DEFAULT_STREAM_AHEAD;
+    var preload: u16 = 0;
     var trace_path: ?[]const u8 = null;
     while (args.next()) |a| {
         if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) {
@@ -89,6 +90,10 @@ pub fn main(init: std.process.Init) !void {
             const text = a["--stream-ahead=".len..];
             stream_ahead = std.fmt.parseInt(u8, text, 10) catch
                 return usage(io, "--stream-ahead= needs a whole number of blocks");
+        } else if (std.mem.startsWith(u8, a, "--preload=")) {
+            const text = a["--preload=".len..];
+            preload = std.fmt.parseInt(u16, text, 10) catch
+                return usage(io, "--preload= needs a whole number of blocks");
         } else if (std.mem.startsWith(u8, a, "--read-ahead=")) {
             const text = a["--read-ahead=".len..];
             read_ahead = std.fmt.parseInt(u16, text, 10) catch
@@ -181,6 +186,7 @@ pub fn main(init: std.process.Init) !void {
             .read_ahead = read_ahead,
             .batch = batch,
             .stream_ahead = stream_ahead,
+            .preload = preload,
             .trace_path = trace_path,
         }) catch |e| fail(out, e);
     } else {
@@ -511,6 +517,7 @@ const ServeOptions = struct {
     batch: u8 = serve.PUSH_BATCH_BLOCKS,
     /// Blocks of a stream that may wait on the card at once.
     stream_ahead: u8 = DEFAULT_STREAM_AHEAD,
+    preload: u16 = 0,
     /// File that takes one line per record, or null for none.
     trace_path: ?[]const u8 = null,
 };
@@ -589,6 +596,7 @@ fn cmdServe(
             .read_ahead = options.read_ahead,
             .max_batch_blocks = options.batch,
             .stream_ahead_blocks = options.stream_ahead,
+            .boot_preload_blocks = options.preload,
             // The CLI drives real silicon, where a read of DATA_IN_COUNT
             // is a USB round trip and the channel drains on the SD clock.
             // See `serve.CLI_SPACE_POLL_WAIT_US`.
@@ -745,6 +753,7 @@ fn printServeStats(io: Io, out: *Io.Writer, stats: serve.Stats, start: Io.Clock.
         "stats: {d} stream chunks carried on in place\n",
         .{stats.streams_continued},
     );
+    try out.print("stats: {d} boot preloads\n", .{stats.boot_preloads});
     try out.print("stats: {d} fills, {d} fills skipped, {d} model resets, {d} write fences\n", .{
         stats.fills,
         stats.fills_skipped,
@@ -1107,7 +1116,7 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\           size. --grow only ever makes an image larger.
         \\
         \\  serve <image> [--ro] [--grow] [--stats] [--read-ahead=N]
-        \\           [--batch=N] [--stream-ahead=N] [--trace=FILE]
+        \\           [--batch=N] [--stream-ahead=N] [--preload=N] [--trace=FILE]
         \\           back the emulated card with a disk image. The command
         \\           sets the capacity from the size of the image, turns the
         \\           card on, and then answers every block that the card
@@ -1140,9 +1149,14 @@ fn usage(io: Io, err: ?[]const u8) !void {
         \\           A host that stops the read throws those blocks away,
         \\           so a larger number wastes USB time. 0 removes the cap.
         \\
+        \\           --preload=N pushes the first N blocks of the image into
+        \\           the card cache each time the card returns to idle, so a
+        \\           boot ROM finds them there. The default is 0.
+        \\
         \\           --trace=FILE writes one line per record the card
         \\           posts: kind (r a record, c the next chunk of a
-        \\           stream), op, lba, blocks and sequence tag.
+        \\           stream), op, lba, blocks, sequence tag and microseconds,
+        \\           and one line per stream push: p, lba, blocks, microseconds.
         \\
         \\
     , .{});

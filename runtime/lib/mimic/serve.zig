@@ -286,6 +286,14 @@ pub const Options = struct {
     /// faster than USB delivers one, so a few blocks in flight keep it
     /// busy.
     stream_ahead_blocks: u8 = 0,
+    /// Blocks from the start of the image that go into the card cache each
+    /// time the card returns to idle, or 0 for none.
+    ///
+    /// A boot ROM reads the first blocks right after it identifies the card,
+    /// and its data timeout can be shorter than one USB round trip. CMD0
+    /// clears the card cache, and the host identifies the card before it
+    /// reads, so the blocks can arrive in that time.
+    boot_preload_blocks: u16 = 0,
 };
 
 /// Microseconds the CLI waits between two reads of DATA_IN_COUNT.
@@ -396,6 +404,8 @@ pub const Stats = struct {
     /// Fills pushed behind a write, so that no stale fill of the block
     /// stays in the card cache. See `Server.fenceWrite`.
     write_fences: u64 = 0,
+    /// Times the card returned to idle and the boot preload opened.
+    boot_preloads: u64 = 0,
 
     /// Blocks pushed into DATA_IN, answers and fills together.
     pub fn pushed(self: Stats) u64 {
@@ -635,6 +645,12 @@ pub const Server = struct {
     /// from before the CMD18, and only a later read can say the stream
     /// ended.
     card_state_fresh: bool = false,
+    /// True while the last status read found the card in idle.
+    card_in_idle: bool = false,
+    /// The end of the boot preload, or 0 once the host reads elsewhere.
+    boot_preload_end: u64 = 0,
+    /// When the trace last took a status line. See `traceStatus`.
+    status_traced_us: i64 = 0,
 
     /// True while a record this loop has READ is still on the card.
     ///
@@ -841,6 +857,24 @@ pub const Server = struct {
         // credit this side was carrying.
         self.credit_words = status[sd.STATUS_DATA_IN_COUNT];
         self.noteCardState(status[sd.STATUS_CARD_STATE]);
+        try self.traceStatus(status);
+    }
+
+    /// Writes the status window to the trace about once a second, so a
+    /// trace shows what the runtime saw while it had nothing to do.
+    fn traceStatus(self: *Server, status: *const [sd.STATUS_WORDS]u32) !void {
+        const out = self.trace orelse return;
+        const now = self.traceMicros();
+        if (now - self.status_traced_us < std.time.us_per_s) return;
+        self.status_traced_us = now;
+        try out.print("s {d} {x} {x} {d} {d} {d}\n", .{
+            status[sd.STATUS_REQ_COUNT],
+            status[sd.STATUS_REQ],
+            status[sd.STATUS_REQ_HI],
+            status[sd.STATUS_CARD_STATE] & sd.CARD_STATE_MASK,
+            status[sd.STATUS_DATA_IN_COUNT],
+            now,
+        });
     }
 
     /// Extends the sequential prefetch while no new request is pending.
@@ -1019,7 +1053,9 @@ pub const Server = struct {
         // answers nothing, and the host then waits out the whole read
         // timeout. One duplicate block costs one transfer; a timeout costs
         // the boot.
-        if (stream) {
+        if (stream and self.keepBootPreload(request.lba, end)) {
+            self.sequential_reads = 0;
+        } else if (stream) {
             // The walk that the last records made is over, so the window
             // goes back to this record the way `scheduleReadAhead` retires
             // one that stopped being sequential.
@@ -1268,6 +1304,7 @@ pub const Server = struct {
     /// and a plain next-block test would read that as a jump and shut the
     /// read ahead down after every window.
     fn scheduleReadAhead(self: *Server, lba: u64, end: u64) void {
+        if (self.keepBootPreload(lba, end)) return;
         const frontier = @max(self.last_read_end, self.ahead_from);
         const sequential = self.last_read_end != NO_BLOCK and
             lba >= self.last_read_end and lba <= frontier;
@@ -1321,7 +1358,9 @@ pub const Server = struct {
         still_pending: u32,
     ) usize {
         var count = used;
-        if (!self.ahead_owed or self.options.read_ahead == 0) return count;
+        // A window is open only when read ahead or the boot preload opened
+        // one, so `ahead_owed` alone says whether there is work.
+        if (!self.ahead_owed) return count;
         if (still_pending != 0) {
             self.stats.ahead_deferred_busy += 1;
             return count;
@@ -1792,6 +1831,39 @@ pub const Server = struct {
         const state = word & sd.CARD_STATE_MASK;
         self.card_in_data = state == @backingInt(sd.CardState.data);
         self.card_state_fresh = true;
+        const idle = state == @backingInt(sd.CardState.idle);
+        if (idle and !self.card_in_idle) self.scheduleBootPreload();
+        self.card_in_idle = idle;
+    }
+
+    /// Opens the read ahead window over the first blocks of the image. See
+    /// `Options.boot_preload_blocks`.
+    fn scheduleBootPreload(self: *Server) void {
+        const blocks = @min(self.options.boot_preload_blocks, self.image.blocks);
+        if (blocks == 0) return;
+        // The card dropped every line when it went to idle.
+        self.cache.clear();
+        self.last_read_end = NO_BLOCK;
+        self.sequential_reads = 0;
+        self.ahead_from = 0;
+        self.ahead_end = blocks;
+        self.ahead_owed = true;
+        self.boot_preload_end = blocks;
+        self.stats.boot_preloads += 1;
+    }
+
+    /// Keeps the boot preload open across a record that reads inside it.
+    /// Gives true when it did, and then the caller leaves the window alone.
+    fn keepBootPreload(self: *Server, lba: u64, end: u64) bool {
+        if (lba >= self.boot_preload_end) {
+            self.boot_preload_end = 0;
+            return false;
+        }
+        self.last_read_end = end;
+        self.ahead_from = @max(self.ahead_from, end);
+        self.ahead_end = self.boot_preload_end;
+        self.ahead_owed = self.ahead_from < self.ahead_end;
+        return true;
     }
 
     /// True when a status read taken after the record of this stream
@@ -4271,6 +4343,40 @@ test "a record for a block the model claims clears the whole model" {
     try std.testing.expect(!server.cache.holds(50));
     try std.testing.expectEqual(@as(u64, 0), server.stats.fills);
     try std.testing.expectEqual(@as(u64, 0), server.stats.fills_skipped);
+}
+
+test "a card that returns to idle gets the first blocks as fills" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 64);
+    const image = try openTestImage(tmp.dir, "card.img", 64, false);
+    defer image.file.close(std.testing.io);
+
+    var fake: FakeDevice = .{};
+    var server: Server = .{
+        .device = fake.device(),
+        .image = image,
+        .options = .{ .boot_preload_blocks = 4 },
+    };
+    try server.learnCache();
+    server.credit_words = fake.space_words;
+
+    // The card is in tran, then CMD0 takes it to idle.
+    server.noteCardState(@backingInt(sd.CardState.tran));
+    try server.continueReadAhead();
+    try std.testing.expectEqual(@as(u64, 0), server.stats.fills);
+    server.noteCardState(@backingInt(sd.CardState.idle));
+    try server.continueReadAhead();
+    try std.testing.expectEqual(@as(u64, 4), server.stats.fills);
+    for (fake.fills[0..fake.tags_len], 0..) |fill, i| {
+        try std.testing.expectEqual(@as(?u32, @intCast(i)), fill);
+    }
+
+    // Idle again without leaving it opens nothing new.
+    server.noteCardState(@backingInt(sd.CardState.idle));
+    try server.continueReadAhead();
+    try std.testing.expectEqual(@as(u64, 4), server.stats.fills);
+    try std.testing.expectEqual(@as(u64, 1), server.stats.boot_preloads);
 }
 
 test "a new card generation clears pending fills before serving a request" {
