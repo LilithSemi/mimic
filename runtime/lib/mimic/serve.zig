@@ -883,13 +883,25 @@ pub const Server = struct {
 
     fn traceRecord(self: *Server, kind: u8, request: Request) !void {
         const out = self.trace orelse return;
-        try out.print("{c} {d} {d} {d} {d}\n", .{
+        try out.print("{c} {d} {d} {d} {d} {d}\n", .{
             kind,
             request.op,
             request.lba,
             request.blocks,
             request.seq,
+            self.traceMicros(),
         });
+    }
+
+    /// Writes a trace line for a push of `count` blocks from `lba`.
+    fn tracePush(self: *Server, lba: u64, count: usize) !void {
+        const out = self.trace orelse return;
+        try out.print("p {d} {d} {d}\n", .{ lba, count, self.traceMicros() });
+    }
+
+    fn traceMicros(self: *const Server) i64 {
+        const now = Io.Clock.Timestamp.now(self.image.io, .awake);
+        return @intCast(@divTrunc(now.raw.nanoseconds, std.time.ns_per_us));
     }
 
     fn serveRequest(self: *Server, request: Request, still_pending: u32) !bool {
@@ -1160,6 +1172,7 @@ pub const Server = struct {
             // room. A record in it is answered at the top of the loop.
             var status: [sd.STATUS_WORDS]u32 = undefined;
             try self.pushBatchStatus(entries[0..count], &status);
+            try self.tracePush(entries[0].lba, count);
             if (status[sd.STATUS_REQ_COUNT] != 0) {
                 self.pop_owed = true;
                 next_record = decodeRequest(.{
