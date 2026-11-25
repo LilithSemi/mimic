@@ -74,7 +74,7 @@ void main() {
     ], 'GET_DESCRIPTOR(config)');
     expect(cfg.length, equals(32), reason: 'config tree is 32 bytes');
     expect(cfg[1], equals(0x02), reason: 'bDescriptorType CONFIGURATION');
-    // The two bulk endpoint descriptors must declare the same 32-byte
+    // The two bulk endpoint descriptors must declare the same
     // maximum packet size the endpoint buffer holds.
     expect(
       cfg[22] | (cfg[23] << 8),

@@ -16,10 +16,9 @@
 // the pads four clock cycles per bit.
 //
 // PACKET SIZE
-// Every endpoint of this device declares a 32-byte maximum packet size,
-// because the ported endpoint buffer holds 32 bytes. A response longer than
-// 32 bytes therefore arrives as several packets, and the tests below count
-// them.
+// Every endpoint of this device declares a 64-byte maximum packet size, the
+// size of the endpoint buffer. A response longer than 64 bytes therefore
+// arrives as several packets, and the tests below count them.
 
 import 'package:mimic/mimic.dart';
 import 'package:rohd/rohd.dart';
@@ -101,7 +100,7 @@ void main() {
     final tb = await buildMimicUsbTb('mimic_usb_mp_tb');
     await tb.enumerate();
 
-    // READ 128 bytes from 0x00. With a 32-byte endpoint that is four full
+    // READ 128 bytes from 0x00. With a 64-byte endpoint that is two full
     // packets.
     expect(
       await tb.bulkOut(mimicReadFrame(0x00, 128)),
@@ -111,7 +110,7 @@ void main() {
 
     final packets = <UsbRxPacket>[];
     final all = <int>[];
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 128 ~/ mimicTbMaxPacket; i++) {
       final p = await tb.bulkIn();
       expect(
         p.isEmpty,
@@ -126,7 +125,7 @@ void main() {
       packets.add(p);
       all.addAll(p.bytes);
     }
-    expect(all.length, equals(128), reason: 'four packets carry 128 bytes');
+    expect(all.length, equals(128), reason: 'the packets carry 128 bytes');
     expect(
       mimicWord(all.sublist(0, 4)),
       equals(0x4D494D43),
@@ -137,7 +136,7 @@ void main() {
       equals(0x00000100),
       reason: 'word 1 is VERSION',
     );
-    // The bulk IN data toggle must alternate across the four packets.
+    // The bulk IN data toggle must alternate across the packets.
     for (var i = 1; i < packets.length; i++) {
       expect(
         packets[i].pid,
@@ -148,17 +147,17 @@ void main() {
   });
 
   test(
-    '36-byte READ crosses the packet boundary and the device recovers',
+    '68-byte READ crosses the packet boundary and the device recovers',
     () async {
-      final tb = await buildMimicUsbTb('mimic_usb_36_tb');
+      final tb = await buildMimicUsbTb('mimic_usb_68_tb');
       await tb.enumerate();
 
-      // READ 36 bytes from 0x00: nine words, crossing DATA_IN at 0x20 and the
-      // 32-byte packet boundary.
+      // READ 68 bytes from 0x00: every word up to 0x40, crossing DATA_IN at
+      // 0x20 and the 64-byte packet boundary.
       expect(
-        await tb.bulkOut(mimicReadFrame(0x00, 36)),
+        await tb.bulkOut(mimicReadFrame(0x00, 68)),
         isTrue,
-        reason: 'device ACKs the READ(36)',
+        reason: 'device ACKs the READ(68)',
       );
 
       final first = await tb.bulkIn();
@@ -176,7 +175,7 @@ void main() {
             '${second.bytes.length}',
       );
       final all = [...first.bytes, ...second.bytes];
-      expect(all.length, equals(36), reason: '36-byte READ returns 36 bytes');
+      expect(all.length, equals(68), reason: '68-byte READ returns 68 bytes');
       expect(
         mimicWord(all.sublist(0, 4)),
         equals(0x4D494D43),
@@ -199,23 +198,23 @@ void main() {
     },
   );
 
-  // A command frame longer than the 32-byte packet size arrives as several
+  // A command frame longer than the 64-byte packet size arrives as several
   // OUT packets. The command engine must parse the whole frame as ONE
   // command: a per-packet restart drops every byte after the first packet.
-  test('a WRITE frame split across three packets writes every word', () async {
+  test('a WRITE frame split across two packets writes every word', () async {
     final tb = await buildMimicUsbTb('mimic_usb_mpo_tb');
     await tb.enumerate();
 
     // 15 words (60 bytes) from 0x00. With the 7-byte header the frame is 67
-    // bytes: three OUT packets of 32, 32 and 3 bytes.
+    // bytes: two OUT packets of 64 and 3 bytes.
     final words = List.generate(15, (i) => 0xC0DE0000 | (i + 1));
     final frame = mimicWriteFrame(0x00, mimicWordBytes(words));
-    expect(frame.length, equals(67), reason: 'the frame needs three packets');
+    expect(frame.length, equals(67), reason: 'the frame needs two packets');
 
     expect(
       await tb.bulkOutFrame(frame),
       isTrue,
-      reason: 'the device ACKs all three OUT packets',
+      reason: 'the device ACKs both OUT packets',
     );
     await tb.settle(50);
 
@@ -238,20 +237,19 @@ void main() {
       equals(MimicRegValue.version),
       reason: 'VERSION stays read-only',
     );
-    // CTRL and NUM_BLOCKS come from the first OUT packet, SCRATCH straddles
-    // no boundary but sits late in it, and IRQ_ENABLE comes from the second
-    // OUT packet.
+    // CTRL, NUM_BLOCKS, SCRATCH and IRQ_ENABLE come from the first OUT
+    // packet. Only the last word of the frame reaches the second packet.
     expect(word(2), equals(words[2]), reason: 'CTRL from packet 1');
     expect(word(4), equals(words[4]), reason: 'NUM_BLOCKS from packet 1');
     expect(word(5), equals(words[5]), reason: 'SCRATCH from packet 1');
-    expect(word(13), equals(words[13]), reason: 'IRQ_ENABLE from packet 2');
+    expect(word(13), equals(words[13]), reason: 'IRQ_ENABLE from packet 1');
   });
 
-  // The last word of this frame straddles the boundary between the second
-  // and the third OUT packet, so it proves the byte order holds across a
+  // The last word of this frame straddles the boundary between the first
+  // and the second OUT packet, so it proves the byte order holds across a
   // packet boundary.
   test(
-    'a WRITE_STREAM frame split across three packets keeps byte order',
+    'a WRITE_STREAM frame split across two packets keeps byte order',
     () async {
       final tb = await buildMimicUsbTb('mimic_usb_mps_tb');
       await tb.enumerate();
@@ -259,19 +257,19 @@ void main() {
       // 15 words to the fixed SCRATCH address: a 67-byte frame again. Every
       // word writes SCRATCH, so SCRATCH must hold the last word of the frame.
       // Byte 63 of the frame is the low byte of that word and sits in the
-      // second packet. Bytes 64 to 66 are the other three and sit in the
-      // third.
+      // first packet. Bytes 64 to 66 are the other three and sit in the
+      // second.
       final words = List.generate(15, (i) => 0x5A5A0000 | (i + 1));
       final frame = mimicWriteStreamFrame(
         MimicReg.scratch,
         mimicWordBytes(words),
       );
-      expect(frame.length, equals(67), reason: 'the frame needs three packets');
+      expect(frame.length, equals(67), reason: 'the frame needs two packets');
 
       expect(
         await tb.bulkOutFrame(frame),
         isTrue,
-        reason: 'the device ACKs all three OUT packets',
+        reason: 'the device ACKs both OUT packets',
       );
       await tb.settle(50);
 
@@ -305,7 +303,7 @@ void main() {
     );
     await tb.enumerate();
 
-    // READ 128 bytes: four IN packets. Take the first packet only and walk
+    // READ 128 bytes: two IN packets. Take the first packet only and walk
     // away from the rest.
     expect(
       await tb.bulkOut(mimicReadFrame(0x00, 128)),

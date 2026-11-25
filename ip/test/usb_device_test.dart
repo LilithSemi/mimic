@@ -411,9 +411,9 @@ void main() {
         expect(dev[0], equals(18)); // bLength
         expect(dev[1], equals(0x01)); // DEVICE
         expect(dev[4], equals(0xFF)); // bDeviceClass = vendor-specific
-        // 32 is the ceiling of the ported TinyFPGA endpoint buffer.
+        // 64 is the largest full speed packet.
         expect(dev[7], equals(mimicUsbMaxPacketSize)); // bMaxPacketSize0
-        expect(mimicUsbMaxPacketSize, equals(32));
+        expect(mimicUsbMaxPacketSize, equals(64));
         // Default VID/PID template bytes.
         expect(dev[8] | (dev[9] << 8), equals(0x1209));
         expect(dev[10] | (dev[11] << 8), equals(0x10C1));
@@ -433,7 +433,7 @@ void main() {
     });
 
     test('config has one interface with two bulk endpoints (EP1 OUT + EP1 IN), '
-        'maxPacketSize 32', () {
+        'maxPacketSize 64', () {
       final cfg = MimicUsbDescriptorRom.configDescriptorBulk;
       // wTotalLength == real byte count.
       final wTotal = cfg[2] | (cfg[3] << 8);
@@ -461,8 +461,8 @@ void main() {
       expect(epIn[4] | (epIn[5] << 8), equals(mimicUsbMaxPacketSize));
     });
 
-    // The descriptor set MimicUsbDevice hands to the ported TinyFPGA core.
-    // Its endpoint buffer holds 32 bytes and no more, so every packet-size
+    // The descriptor set MimicUsbDevice hands to the Harbor core. Its
+    // endpoint buffer is built from the same size, so every packet-size
     // field of every served descriptor must declare exactly that. This walks
     // the CONFIGURATION tree by bLength, so a new endpoint descriptor cannot
     // slip in with a size the buffer cannot hold.

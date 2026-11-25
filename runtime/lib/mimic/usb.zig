@@ -38,9 +38,8 @@ const INTERFACE: u32 = 0;
 const TIMEOUT_MS: u32 = 2000;
 
 /// Bulk endpoint maximum packet size, in bytes. This is the wMaxPacketSize
-/// the device reports for EP1 OUT and EP1 IN. The ported tinyfpga endpoint
-/// buffer sets the ceiling, so the value cannot go above 32.
-const MAX_PACKET: usize = 32;
+/// the device reports for EP1 OUT and EP1 IN.
+const MAX_PACKET: usize = 64;
 const SYS_DEVICES = "/sys/bus/usb/devices";
 
 /// URBs that ONE transaction can hold on the queue at the same time.
@@ -517,10 +516,11 @@ test "needsZeroPacket closes only transfers that end on a packet boundary" {
     try std.testing.expect(!needsZeroPacket(MAX_PACKET - 1));
     try std.testing.expect(!needsZeroPacket(MAX_PACKET + 1));
     // Exact multiples need the closing packet. 352 and 704 are writeRegs
-    // with 32 and 64 pairs, the sizes the runtime really sends.
+    // with 32 and 64 pairs, the sizes the runtime really sends. 352 ends on
+    // a short packet.
     try std.testing.expect(needsZeroPacket(MAX_PACKET));
     try std.testing.expect(needsZeroPacket(MAX_PACKET * 2));
-    try std.testing.expect(needsZeroPacket(352));
+    try std.testing.expect(!needsZeroPacket(352));
     try std.testing.expect(needsZeroPacket(704));
 }
 

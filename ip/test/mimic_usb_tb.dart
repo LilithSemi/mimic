@@ -111,7 +111,7 @@ class MimicUsbTb {
   }
 
   /// Runs one control read: SETUP, the IN data stage over as many packets as
-  /// the 32-byte control endpoint needs, then the OUT status stage. Returns
+  /// the 64-byte control endpoint needs, then the OUT status stage. Returns
   /// the bytes the device served.
   Future<List<int>> controlRead(
     int addr,
@@ -242,7 +242,7 @@ class MimicUsbTb {
   }
 
   /// Reads a response of [len] bytes over as many bulk IN packets as the
-  /// 32-byte endpoint needs.
+  /// 64-byte endpoint needs.
   Future<List<int>> bulkInBytes(int len) async {
     final out = <int>[];
     while (out.length < len) {

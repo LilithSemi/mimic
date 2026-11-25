@@ -25,14 +25,13 @@
 //   framing parser, and the READ/WRITE Wishbone MASTER (MimicUsbCmdEngine).
 //
 // Endpoints / max packet size
-//   EP0       : control (enumeration), bMaxPacketSize0 = 32.
-//   EP1 OUT   : bulk, host -> device, wMaxPacketSize = 32. Carries the COMMAND
+//   EP0       : control (enumeration), bMaxPacketSize0 = 64.
+//   EP1 OUT   : bulk, host -> device, wMaxPacketSize = 64. Carries the COMMAND
 //               STREAM.
-//   EP1 IN    : bulk, device -> host, wMaxPacketSize = 32 (endpoint address
+//   EP1 IN    : bulk, device -> host, wMaxPacketSize = 64 (endpoint address
 //               0x81). Carries READ responses.
-//   32 is a HARD limit, not a tuning knob. The TinyFPGA endpoint buffer uses
-//   a 5-bit byte address with a 6th bit as the full flag, in the original
-//   Verilog and in the port, so the buffer holds 32 bytes and no more. A
+//   The declared size must equal the endpoint buffer of the Harbor core,
+//   which [HarborUsbFsDevice] builds from the same `maxPacketSize`. A
 //   larger declared size passes simulation and then loses data on real
 //   hardware, because the host is then free to send a packet the buffer
 //   cannot hold.
@@ -69,12 +68,12 @@ import '../regs.dart';
 
 /// The maximum packet payload of every endpoint of this device, in bytes.
 ///
-/// The ported TinyFPGA endpoint buffer addresses its bytes with 5 bits and
-/// uses a 6th bit as the full flag, so it holds 32 bytes and no more. Every
-/// descriptor in [MimicUsbDescriptorRom] declares this value, and
-/// [MimicUsbDevice] passes it to the ported core, so the advertised size and
-/// the buffer always agree.
-const int mimicUsbMaxPacketSize = 32;
+/// 64 is the largest full speed bulk packet. A full speed link costs about
+/// the same per packet whatever its size, so a larger packet carries more
+/// data per unit of link time. Every descriptor in [MimicUsbDescriptorRom]
+/// declares this value, and [MimicUsbDevice] passes it to the Harbor core,
+/// so the advertised size and the buffer always agree.
+const int mimicUsbMaxPacketSize = 64;
 
 // Configuration
 
@@ -222,7 +221,7 @@ class MimicUsbDescriptorRom extends BridgeModule {
     0xFF, // bDeviceClass = vendor-specific
     0x00, // bDeviceSubClass
     0x00, // bDeviceProtocol
-    32, // bMaxPacketSize0
+    mimicUsbMaxPacketSize, // bMaxPacketSize0
     0x09, 0x12, // idVendor = 0x1209 (overridden per-instance below)
     0xC1, 0x10, // idProduct = 0x10C1
     0x00, 0x01, // bcdDevice = 0x0100
@@ -261,14 +260,14 @@ class MimicUsbDescriptorRom extends BridgeModule {
     0x05, // ENDPOINT
     0x01, // bEndpointAddress = EP1 OUT (dir bit 7 = 0)
     0x02, // bmAttributes = bulk
-    0x20, 0x00, // wMaxPacketSize = 32 (LE)
+    mimicUsbMaxPacketSize, 0x00, // wMaxPacketSize (LE)
     0, // bInterval (ignored for bulk)
     // EP1 IN endpoint (7 bytes).
     7, // bLength
     0x05, // ENDPOINT
     0x81, // bEndpointAddress = EP1 IN (dir bit 7 = 1)
     0x02, // bmAttributes = bulk
-    0x20, 0x00, // wMaxPacketSize = 32 (LE)
+    mimicUsbMaxPacketSize, 0x00, // wMaxPacketSize (LE)
     0, // bInterval
   ];
 
