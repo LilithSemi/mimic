@@ -9,7 +9,7 @@ on writes.
 | Offset | Name | Access | Function |
 | ------ | ---- | ------ | -------- |
 | `0x00` | `ID` | RO | `0x4D494D43`, which is `MIMC`. |
-| `0x04` | `VERSION` | RO | Packed interface version. Current value is `0x00010100`. |
+| `0x04` | `VERSION` | RO | Packed interface version. Current value is `0x00000100`. |
 | `0x08` | `CTRL` | RW | Card control bits. |
 | `0x0C` | `STATUS` | RO | Reserved. Reads zero. |
 | `0x10` | `NUM_BLOCKS` | RW | Published capacity in blocks. |
