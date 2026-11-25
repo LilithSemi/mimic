@@ -600,6 +600,15 @@ class MimicGenIpConfig {
   /// Builds the elaborated SoC for [buildTarget].
   HarborSoC buildSoC() {
     validate();
+    final boardKey = boardName;
+    if (targetSpec == null &&
+        boardKey != null &&
+        mimicBoard(boardKey).pins.containsKey('ulpi_clk')) {
+      throw UnsupportedError(
+        'Board $boardKey has a ULPI PHY, and the ULPI USB link is not built '
+        'yet. Build a board with direct USB pins instead.',
+      );
+    }
     final target = buildTarget();
     final targetFrequency = switch (target) {
       HarborFpgaTarget(:final frequency) => frequency,
