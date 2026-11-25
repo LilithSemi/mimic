@@ -146,6 +146,7 @@ class _Bench {
   final Logic writeDone = Logic(name: 'write_done');
   final Logic writeFailed = Logic(name: 'write_failed');
   final Logic writePrg = Logic(name: 'write_prg');
+  final Logic writeRcv = Logic(name: 'write_rcv');
 
   /// The card register sender, as the card sees it. It is free, so an
   /// ACMD51 in tran is answered and not refused.
@@ -332,6 +333,7 @@ Future<_Bench> _setUp(
   dut.input('write_done').srcConnection! <= bench.writeDone;
   dut.input('write_failed').srcConnection! <= bench.writeFailed;
   dut.input('write_prg').srcConnection! <= bench.writePrg;
+  dut.input('write_rcv').srcConnection! <= bench.writeRcv;
   dut.input('reg_ready').srcConnection! <= bench.regReady;
   await dut.build();
 
@@ -352,6 +354,7 @@ Future<_Bench> _setUp(
   bench.writeDone.inject(0);
   bench.writeFailed.inject(0);
   bench.writePrg.inject(0);
+  bench.writeRcv.inject(0);
   if (linkBusyClocks == null) {
     bench.respBusy.inject(0);
   }

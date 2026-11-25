@@ -565,8 +565,13 @@ class MimicSdCardDevice extends BridgeModule {
     //
     // The tag is compared, so a write to a block that maps to a line
     // holding ANOTHER block leaves that line alone.
-    cache.input('inval').srcConnection! <= fsm.output('write_start');
-    cache.input('inval_lba').srcConnection! <= fsm.output('write_lba');
+    //
+    // The write path names each block as it opens, which covers every block
+    // of a CMD25 and not only the first.
+    final writeOpen = Logic(name: 'write_open');
+    final writeOpenLba = Logic(name: 'write_open_lba', width: sdCommandArgBits);
+    cache.input('inval').srcConnection! <= writeOpen;
+    cache.input('inval_lba').srcConnection! <= writeOpenLba;
 
     // CMD0 throws the whole store away. A card that a new host
     // re-identifies must not answer out of the store the last host filled,
@@ -590,6 +595,10 @@ class MimicSdCardDevice extends BridgeModule {
     writePath.input('lba').srcConnection! <= fsm.output('write_lba');
     writePath.input('epoch').srcConnection! <= cardEpoch;
     writePath.input('abort').srcConnection! <= fsm.output('write_abort');
+    writePath.input('multi').srcConnection! <= fsm.output('write_multi');
+    writePath.input('stop').srcConnection! <= fsm.output('write_stop');
+    writeOpen <= writePath.output('open');
+    writeOpenLba <= writePath.output('open_lba');
     writePath.input('rx_byte').srcConnection! <= link.output('dat_byte');
     writePath.input('rx_byte_valid').srcConnection! <=
         link.output('dat_byte_valid');
@@ -643,6 +652,7 @@ class MimicSdCardDevice extends BridgeModule {
     fsm.input('write_done').srcConnection! <= writePath.output('done');
     fsm.input('write_failed').srcConnection! <= writePath.output('failed');
     fsm.input('write_prg').srcConnection! <= writePath.output('in_prg');
+    fsm.input('write_rcv').srcConnection! <= writePath.output('in_rcv');
 
     // The two senders share the transmit port of the link. They cannot run
     // together: the read path sends in the DATA state and the register

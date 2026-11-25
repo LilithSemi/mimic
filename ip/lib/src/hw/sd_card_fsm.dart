@@ -205,6 +205,13 @@ const int sdCmdSetBlocklen = 16;
 /// CSD of this card reports.
 const int sdCmdWriteBlock = 24;
 
+/// Command index 25, WRITE_MULTIPLE_BLOCK.
+///
+/// The same as [sdCmdWriteBlock] for the first block. After each block the
+/// card returns to rcv and takes the block at the next address, until CMD12
+/// stops the write.
+const int sdCmdWriteMultipleBlock = 25;
+
 /// Command index 18, READ_MULTIPLE_BLOCK.
 ///
 /// The card in the tran state answers R1, moves to the data state and
@@ -328,6 +335,7 @@ const List<int> sdCommandIndices = [
   sdCmdSetBlocklen,
   sdCmdReadMultipleBlock,
   sdCmdWriteBlock,
+  sdCmdWriteMultipleBlock,
   sdAcmdSendOpCond,
   sdAcmdSetBusWidth,
   sdAcmdSendScr,
@@ -643,6 +651,10 @@ class SdCommandDecision {
   /// The block address of that write, of [sdCommandArgBits] bits, or null.
   final Logic? writeLba;
 
+  /// High when that write is a CMD25, which takes one block after another
+  /// until CMD12, or null for a decode that has none.
+  final Logic? writeMulti;
+
   /// High to send one CARD REGISTER on DAT, one bit wide, or null for a
   /// decode that sends none.
   ///
@@ -686,6 +698,7 @@ class SdCommandDecision {
     this.readMulti,
     this.writeStart,
     this.writeLba,
+    this.writeMulti,
     this.regSend,
     this.regData,
     this.regBytes,
@@ -1015,6 +1028,10 @@ class MimicSdCardFsm extends BridgeModule {
     createPort('write_failed', PortDirection.input);
     createPort('write_prg', PortDirection.input);
 
+    // High while a CMD25 write waits for its next block. The card moves
+    // from prg back to rcv on it.
+    createPort('write_rcv', PortDirection.input);
+
     addOutput('resp_start');
     addOutput('resp_data', width: sdResponseRegBits);
     addOutput('resp_kind', width: sdRespKindBits);
@@ -1026,6 +1043,10 @@ class MimicSdCardFsm extends BridgeModule {
     addOutput('write_start');
     addOutput('write_lba', width: sdCommandArgBits);
     addOutput('write_abort');
+    addOutput('write_multi');
+    // A pulse for a CMD12 that arrives in prg. The write path finishes the
+    // block it holds and then ends the write.
+    addOutput('write_stop');
     addOutput('reg_send');
     addOutput('reg_data', width: sdCardRegTxBits);
     addOutput('reg_bytes', width: sdDataTxLenBits);
@@ -1083,6 +1104,7 @@ class MimicSdCardFsm extends BridgeModule {
     final readMultiReg = Logic(name: 'read_multi_reg');
     final writeStartReg = Logic(name: 'write_start_reg');
     final writeLbaReg = Logic(name: 'write_lba_reg', width: sdCommandArgBits);
+    final writeMultiReg = Logic(name: 'write_multi_reg');
     final regSendReg = Logic(name: 'reg_send_reg');
     final regDataReg = Logic(name: 'reg_data_reg', width: sdCardRegTxBits);
     final regBytesReg = Logic(name: 'reg_bytes_reg', width: sdDataTxLenBits);
@@ -1146,6 +1168,7 @@ class MimicSdCardFsm extends BridgeModule {
     final decodeWriteStart = decision.writeStart ?? Const(0);
     final decodeWriteLba =
         decision.writeLba ?? Const(0, width: sdCommandArgBits);
+    final decodeWriteMulti = decision.writeMulti ?? Const(0);
     if (decodeWriteLba.width != sdCommandArgBits) {
       throw StateError(
         'The decode gives a write block address of ${decodeWriteLba.width} '
@@ -1247,6 +1270,18 @@ class MimicSdCardFsm extends BridgeModule {
           'decode_moves_state',
         );
 
+    // CMD12 while the card programs a block of a CMD25. The card stays in
+    // prg until the block is written, so the decode does not move it, and
+    // the write path hears the stop through this pulse instead.
+    final writeStop =
+        (cmdPending &
+                decodeCommit &
+                state.eq(prgState) &
+                cmdIndexReg.eq(
+                  Const(sdCmdStopTransmission, width: sdCommandIndexBits),
+                ))
+            .named('write_stop');
+
     // The branches below are ordered, and a later one wins.
     //
     // respGo comes first, so an answer that the decode queues in that same
@@ -1279,6 +1314,7 @@ class MimicSdCardFsm extends BridgeModule {
         readMultiReg: Const(0),
         writeStartReg: Const(0),
         writeLbaReg: Const(0, width: sdCommandArgBits),
+        writeMultiReg: Const(0),
         regSendReg: Const(0),
         regDataReg: Const(0, width: sdCardRegTxBits),
         regBytesReg: Const(1, width: sdDataTxLenBits),
@@ -1309,6 +1345,7 @@ class MimicSdCardFsm extends BridgeModule {
         // write that ends on the same clock takes the card to tran and not
         // to prg.
         If(state.eq(rcvState) & input('write_prg'), then: [state < prgState]),
+        If(state.eq(prgState) & input('write_rcv'), then: [state < rcvState]),
         If(
           cmdPending,
           then: [
@@ -1331,6 +1368,7 @@ class MimicSdCardFsm extends BridgeModule {
                   then: [
                     writeStartReg < Const(1),
                     writeLbaReg < decodeWriteLba,
+                    writeMultiReg < decodeWriteMulti,
                   ],
                 ),
                 If(
@@ -1421,6 +1459,8 @@ class MimicSdCardFsm extends BridgeModule {
     output('write_start') <= writeStartReg;
     output('write_lba') <= writeLbaReg;
     output('write_abort') <= leaveWrite;
+    output('write_multi') <= writeMultiReg;
+    output('write_stop') <= writeStop;
     output('reg_send') <= regSendReg;
     output('reg_data') <= regDataReg;
     output('reg_bytes') <= regBytesReg;
@@ -1487,6 +1527,7 @@ class MimicSdCardFsm extends BridgeModule {
     final isCmd16 = _isCommand(index, sdCmdSetBlocklen, 'is_cmd16');
     final isCmd18 = _isCommand(index, sdCmdReadMultipleBlock, 'is_cmd18');
     final isCmd24 = _isCommand(index, sdCmdWriteBlock, 'is_cmd24');
+    final isCmd25 = _isCommand(index, sdCmdWriteMultipleBlock, 'is_cmd25');
     final isCmd55 = _isCommand(index, sdCmdAppCmd, 'is_cmd55');
 
     // Index 41 is ACMD41 only while the CMD55 bit is high. The same index
@@ -1604,14 +1645,16 @@ class MimicSdCardFsm extends BridgeModule {
     final writeAllowed = (inputs.cardEnable & inputs.writeReady).named(
       'write_allowed',
     );
-    final writeAddressBad = (isCmd24 & inTran & ~addressInRange).named(
+    final isWrite = (isCmd24 | isCmd25).named('is_write_command');
+    final writeAddressBad = (isWrite & inTran & ~addressInRange).named(
       'write_address_bad',
     );
-    final writeBlock = (isCmd24 & inTran & writeAllowed & addressInRange).named(
+    final writeBlock = (isWrite & inTran & writeAllowed & addressInRange).named(
       'write_block',
     );
-    final writeRefused = (isCmd24 & inTran & ~writeAllowed & addressInRange)
+    final writeRefused = (isWrite & inTran & ~writeAllowed & addressInRange)
         .named('write_refused');
+    final writeMulti = (writeBlock & isCmd25).named('write_multi');
 
     // CMD16, SET_BLOCKLEN. The card holds a datapath of sdBlockBytes bytes
     // and nothing else, so it accepts that length and refuses every other
@@ -1801,8 +1844,18 @@ class MimicSdCardFsm extends BridgeModule {
     //
     // CMD13 names one card by its address and reads its status. It changes
     // nothing, so a host can poll it.
-    final stopTransmission = (isCmd12 & (inTran | inputs.state.eq(dataState)))
-        .named('stop_transmission');
+    //
+    // CMD12 also ends a CMD25. In rcv the card goes back to tran. In prg it
+    // stays in prg until the block it holds is written, and the write path
+    // then ends the write.
+    final inPrgState = inputs.state.eq(prgState).named('cmd_in_prg');
+    final stopTransmission =
+        (isCmd12 &
+                (inTran |
+                    inputs.state.eq(dataState) |
+                    inputs.state.eq(rcvState) |
+                    inPrgState))
+            .named('stop_transmission');
     // CMD13 also belongs in the rcv and prg states, and that is the whole
     // point of it for a write: a host polls CMD13 until the card leaves
     // prg, which is how it learns that the card finished the block. A card
@@ -1946,7 +1999,11 @@ class MimicSdCardFsm extends BridgeModule {
                   mux(
                     writeBlock,
                     rcvState,
-                    mux(stopTransmission, tranState, inputs.state),
+                    mux(
+                      stopTransmission & ~inPrgState,
+                      tranState,
+                      inputs.state,
+                    ),
                   ),
                 ),
               ),
@@ -1991,6 +2048,7 @@ class MimicSdCardFsm extends BridgeModule {
       readMulti: readMulti,
       writeStart: writeBlock,
       writeLba: inputs.arg,
+      writeMulti: writeMulti,
       regSend: (sendScr | sendSwitch | sendSdStatus).named('reg_send_any'),
       regData: mux(
         sendSwitch,

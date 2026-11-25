@@ -238,6 +238,14 @@ class MimicSdWritePath extends BridgeModule {
 
     createPort('start', PortDirection.input);
     createPort('lba', PortDirection.input, width: sdCommandArgBits);
+
+    // CMD25. Read with `start`: after each block the path takes the block
+    // at the next address, until `stop` or `abort`.
+    createPort('multi', PortDirection.input);
+
+    // CMD12 while the card programs a block of a CMD25. The path finishes
+    // that block and then ends the write.
+    createPort('stop', PortDirection.input);
     createPort('epoch', PortDirection.input, width: sdRequestEpochBits);
     createPort('abort', PortDirection.input);
 
@@ -291,6 +299,11 @@ class MimicSdWritePath extends BridgeModule {
     addOutput('done');
     addOutput('failed');
     addOutput('in_prg');
+    addOutput('in_rcv');
+    // A pulse as each block of a write opens, with its address on
+    // `open_lba`. The block cache drops the line of that address.
+    addOutput('open');
+    addOutput('open_lba', width: sdCommandArgBits);
     addOutput('block_pushed');
     addOutput('timeout_event');
 
@@ -325,6 +338,11 @@ class MimicSdWritePath extends BridgeModule {
     // start pulse, so a runtime that changes CTRL in the middle of a write
     // cannot move a host that is already on busy.
     final writeBackReg = Logic(name: 'write_back_reg');
+
+    // A CMD25 that runs, and a stop that came for it. The stop is kept
+    // until the block that holds the host is done.
+    final multiReg = Logic(name: 'write_multi_reg');
+    final stopReg = Logic(name: 'write_stop_reg');
 
     // High once a byte of the block has arrived. The link cannot stop in
     // the middle of a block, so an abort is only safe before the first
@@ -366,6 +384,7 @@ class MimicSdWritePath extends BridgeModule {
     final timerLast = Const(this.timeoutClocks - 1, width: timerBits);
     final timerDone = timer.gte(timerLast).named('write_timer_done');
 
+    final openPulse = Logic(name: 'write_open_pulse');
     final donePulse = Logic(name: 'write_done_pulse');
     final failedPulse = Logic(name: 'write_failed_pulse');
     final pushedPulse = Logic(name: 'write_pushed_pulse');
@@ -506,16 +525,20 @@ class MimicSdWritePath extends BridgeModule {
         lbaReg: Const(0, width: sdCommandArgBits),
         crcGood: Const(0),
         writeBackReg: Const(0),
+        multiReg: Const(0),
+        stopReg: Const(0),
         rxOpen: Const(0),
         onChannel: zeroBlocks,
         seq: Const(sdRequestSeqNone, width: sdRequestSeqBits),
         timer: zeroTicks,
+        openPulse: Const(0),
         donePulse: Const(0),
         failedPulse: Const(0),
         pushedPulse: Const(0),
         timeoutPulse: Const(0),
       },
       [
+        openPulse < Const(0),
         donePulse < Const(0),
         failedPulse < Const(0),
         pushedPulse < Const(0),
@@ -546,6 +569,7 @@ class MimicSdWritePath extends BridgeModule {
           ],
         ),
         If(pushAccepted, then: [pushedPulse < Const(1)]),
+        If(input('stop') | input('abort'), then: [stopReg < Const(1)]),
 
         Case(state, [
           CaseItem(stateIdle, [
@@ -556,7 +580,13 @@ class MimicSdWritePath extends BridgeModule {
                 timer < zeroTicks,
                 seq < seqNext,
                 lbaReg < input('lba'),
-                writeBackReg < input('write_back'),
+                // A CMD25 holds the host on busy for every block, because
+                // the channel holds one block and the next one follows at
+                // once.
+                writeBackReg < input('write_back') & ~input('multi'),
+                multiReg < input('multi'),
+                stopReg < Const(0),
+                openPulse < Const(1),
                 byteSel < Const(0, width: 2),
                 accum < Const(0, width: 24),
                 rxOpen < Const(0),
@@ -572,10 +602,15 @@ class MimicSdWritePath extends BridgeModule {
                 // The state machine took the card out of the receive
                 // state, or the runtime dropped CTRL bit 0. No byte has
                 // arrived, so nothing is on the channel and no record is
-                // posted.
+                // posted. For a CMD25 between two blocks this is the
+                // normal end of the write.
                 state < stateIdle,
                 timer < zeroTicks,
-                failedPulse < Const(1),
+                If(
+                  multiReg & enable,
+                  then: [donePulse < Const(1)],
+                  orElse: [failedPulse < Const(1)],
+                ),
               ],
               orElse: [
                 If(
@@ -644,10 +679,24 @@ class MimicSdWritePath extends BridgeModule {
               ackRetire,
               then: [
                 // The runtime took the block. Busy releases on the next
-                // clock and the card returns to the transfer state.
-                state < stateIdle,
+                // clock. A CMD25 with no stop waits for the block at the
+                // next address, and every other write returns the card to
+                // the transfer state.
                 timer < zeroTicks,
-                donePulse < Const(1),
+                If(
+                  multiReg & ~stopReg & ~stopped & ~input('stop'),
+                  then: [
+                    state < stateRecv,
+                    seq < seqNext,
+                    lbaReg < lbaReg + Const(1, width: sdCommandArgBits),
+                    openPulse < Const(1),
+                    byteSel < Const(0, width: 2),
+                    accum < Const(0, width: 24),
+                    rxOpen < Const(0),
+                    crcGood < Const(0),
+                  ],
+                  orElse: [state < stateIdle, donePulse < Const(1)],
+                ),
               ],
               orElse: [
                 If(
@@ -697,6 +746,12 @@ class MimicSdWritePath extends BridgeModule {
     // card in the prg state, which is what CMD13 reports to a host that
     // polls for the end of a write.
     output('in_prg') <= busyHold;
+
+    // A CMD25 waits for its next block. The state machine moves the card
+    // from prg back to rcv on it.
+    output('in_rcv') <= inRecv;
+    output('open') <= openPulse;
+    output('open_lba') <= lbaReg;
 
     if (sdBlockWords * 4 != 512) {
       throw StateError(
