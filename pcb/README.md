@@ -59,8 +59,10 @@ ball J16 (PCLKT2_1).
 ### 1.8 V rail
 
 U15 is an NCP115 1.8 V LDO. It uses the same footprint and the same enable
-net as the 2.5 V LDO (U10). C89 (4.7 uF) is on the 3.3 V input and C90
-(4.7 uF) is on the 1.8 V output. The PHY is the only load on this rail.
+net as the 2.5 V LDO (U10). Its input is VSYS (USB VBUS, 5 V), so the
+1.8 V rail does not wait for the 3.3 V rail. C89 (4.7 uF) is on the VSYS input
+and C90 (4.7 uF) is on the 1.8 V output. The PHY is the only load on this
+rail.
 
 ### Review items
 
@@ -70,11 +72,22 @@ Examine these items before fabrication:
   gap above 0.21 mm of 7628 prepreg (JLC04161H-7628 stack-up). An IPC-2141
   estimate gives approximately 91 ohm differential. Confirm the impedance
   with the fabricator calculator.
+- Power order. DS00001792A section 5.5.3 requires VDD18 to be stable
+  before VDDIO. U15 takes VSYS and both regulators share the EN net, so the
+  LDO is expected to reach 1.8 V before the 3.3 V buck ends its soft
+  start. Measure this order on the first boards.
+- VSYS capacitance. VSYS has 24.7 uF (C6, C7 and C77). This is more than
+  the 10 uF limit for a USB device. The value comes from OrangeCrab and
+  this change does not touch it.
+- USB return path. The DP/DM pair changes from F.Cu (In1 GND reference) to
+  B.Cu (In2 3.3 V reference) at the vias beside U13. C91 (100 nF) beside
+  these vias connects 3.3 V to GND for the return current.
 - REFSEL straps. REFSEL0, REFSEL1 and REFSEL2 must all connect to +3.3 V
   (111, 24 MHz).
 - VDD18 decoupling. C86 and C87 (100 nF) must be near pins 28 and 30.
 - CLKOUT strap. The PHY reads CLKOUT at reset. R46 (10k) holds CLKOUT low.
-  The FPGA ball J16 is an input only and has no internal pull.
+  The FPGA ball J16 (PR23A/PCLKT2_1) is a bidirectional I/O. The gateware
+  uses it as an input with PULLMODE=NONE, so it does not pull CLKOUT high.
 - RESETB hold. R45 (10k) holds RESETB low until the FPGA drives
   ULPI_RST_N.
 - PHY ID. The ID pin is not connected, so the board is a B-device only.
