@@ -129,6 +129,10 @@
             mimic-pcb = pkgs.callPackage ./pkgs/mimic-pcb {
               flakever = flakeverConfig;
             };
+
+            mimic-case = pkgs.callPackage ./pkgs/mimic-case {
+              flakever = flakeverConfig;
+            };
           };
 
           packages =
@@ -151,7 +155,12 @@
               ) devices;
             in
             {
-              inherit (pkgs) mimic-ip mimic-pcb mimic-rt;
+              inherit (pkgs)
+                mimic-case
+                mimic-ip
+                mimic-pcb
+                mimic-rt
+                ;
             }
             // devicePackages;
 
@@ -160,6 +169,7 @@
             ip = pkgs.mimic-ip.shell;
             rt = pkgs.mimic-rt.shell;
             pcb = pkgs.mimic-pcb.shell;
+            case = pkgs.mimic-case.shell;
           };
         };
     };
