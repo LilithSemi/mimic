@@ -49,8 +49,8 @@ const DEFAULT_READ_AHEAD: u16 = 0;
 
 /// Blocks of a stream that may wait on the card at once. The card sends a
 /// block about ten times faster than USB delivers one, so more blocks in
-/// flight buy no speed, and every one of them is thrown away when the host
-/// stops the stream. See `serve.Options.stream_ahead_blocks`.
+/// flight buy no speed, and a block that the host does not read goes into
+/// the card cache and takes a line. See `serve.Options.stream_ahead_blocks`.
 const DEFAULT_STREAM_AHEAD: u8 = 4;
 
 pub fn main(init: std.process.Init) !void {
@@ -745,10 +745,11 @@ fn printServeStats(io: Io, out: *Io.Writer, stats: serve.Stats, start: Io.Clock.
         "stats: {d} stream chunks carried on in place\n",
         .{stats.streams_continued},
     );
-    try out.print("stats: {d} fills, {d} fills skipped, {d} model resets\n", .{
+    try out.print("stats: {d} fills, {d} fills skipped, {d} model resets, {d} write fences\n", .{
         stats.fills,
         stats.fills_skipped,
         stats.model_resets,
+        stats.write_fences,
     });
     // The two reasons a read ahead was dropped say different things. A
     // card that was BUSY was already holding a record, so the fill would

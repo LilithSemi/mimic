@@ -4,7 +4,8 @@
 // round trip and one block push, which is about a millisecond at full
 // speed. A read the host has seen before does not have to cost that. This
 // module holds the blocks the runtime chose to leave on the card, and a
-// CMD17 that names one of them is answered from here with NO record at all.
+// CMD17 or a block of a CMD18 that names one of them is answered from here
+// with NO record at all.
 //
 // The card does LOOKUP. The card does NO POLICY.
 //   CMD17 has to decide hit or miss in a few SD clocks, so the tag compare

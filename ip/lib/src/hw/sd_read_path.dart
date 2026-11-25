@@ -346,18 +346,29 @@ final int sdReadStateBits = sdReadStateLookup.bitLength;
 /// blocks after another, so the whole chunk costs the round trips of its
 /// blocks and not the round trips of a record for each block.
 ///
-/// A CMD18 therefore never asks the cache. The record IS the read ahead,
-/// and a lookup for each block would put a record on the channel for each
-/// block again. The cache and the speculative fills stay for CMD17, which
-/// is where a block is read on its own.
+/// A CMD18 asks the cache for EVERY block, the way a CMD17 does. A hit
+/// serves the block out of the cache and posts no record, and the card
+/// looks the next block up. The first miss posts a chunk record that
+/// starts at that block, and the card then takes the chunk off the channel
+/// as described above.
 ///
 /// The card does not know how long the stream is. It asks for a chunk, and
 /// it asks for another when that one runs out, until CMD12 stops it or the
 /// stream reaches the end of the card. A host that stops in the middle of
-/// a chunk leaves the runtime pushing blocks that no read wants: the TAG
-/// is what keeps that safe, because the next read takes the next sequence
-/// number and every block of the chunk that is left carries the old one
-/// and is thrown away.
+/// a chunk leaves the runtime pushing blocks that no read wants. The
+/// runtime sends the blocks of a chunk after the first as FILLS, so the
+/// card writes the blocks it did not use into the cache, and the next
+/// CMD18 that starts where this one stopped hits them. A block that
+/// carries the tag of an old record is thrown away, which keeps the block
+/// of one request from answering another.
+///
+/// The card leaves [sdStreamGapClocks] clocks between two blocks of a
+/// stream whether the next block comes from the cache or from the channel.
+/// A CMD12 in the gap releases a lookup or a wait, even when it arrived
+/// while the card took a block off the channel. A CMD12 that arrives while
+/// a block is on DAT cuts the block. A cut block counts as consumed and is
+/// not cached, so the next CMD18 at that address misses and asks again, or
+/// hits a copy that the cache already held.
 ///
 /// A record that goes unanswered leaves an answer that may still be on its
 /// way. The TAG is what tells the two apart, and no timer is needed for
@@ -957,15 +968,13 @@ class MimicSdReadPath extends BridgeModule {
     final verdictReady = (inLookup & ~releaseLookup & input('cache_hit_valid'))
         .named('read_verdict_ready');
     //
-    // A MULTIPLE block read never hits. The record of a stream IS the read
-    // ahead: it asks for a whole chunk in one record, so a lookup for each
-    // block of that chunk would put a record on the channel for each block
-    // again and undo the whole gain. The cache and the speculative fills
-    // stay for CMD17, where a block is read on its own.
-    final cacheHit = (verdictReady & input('cache_hit') & ~multiReg).named(
+    // A MULTIPLE block read asks the cache for each block that it has to
+    // look up. The blocks of a chunk that a record asked for come off the
+    // channel and are not looked up: see `goOnSame`.
+    final cacheHit = (verdictReady & input('cache_hit')).named(
       'read_cache_hit',
     );
-    final cacheMiss = (verdictReady & (~input('cache_hit') | multiReg)).named(
+    final cacheMiss = (verdictReady & ~input('cache_hit')).named(
       'read_cache_miss',
     );
 
@@ -981,7 +990,13 @@ class MimicSdReadPath extends BridgeModule {
     // A HIT. The first word of the line is already on the read port of the
     // cache, because the lookup read it with the tag, so the card can open
     // the block as soon as the link has finished the response.
-    final hitLoad = (cacheHit & ~input('cmd_busy')).named('read_hit_load');
+    //
+    // The block waits for the gap that follows the end bit of the block
+    // before it, so a CMD12 can still stop the stream. See
+    // [sdStreamGapClocks].
+    final hitLoad = (cacheHit & ~input('cmd_busy') & gapIdle).named(
+      'read_hit_load',
+    );
 
     // The tag compare of the data channel. The card sends a block only
     // when its tag names the record the card is waiting for.
@@ -1265,6 +1280,9 @@ class MimicSdReadPath extends BridgeModule {
                         state < stateSend,
                         fromCache < Const(1),
                         timer < zeroTicks,
+                        // No chunk is owed, so the end of this block looks
+                        // the next one up.
+                        streamLeft < Const(0, width: sdRequestBlocksBits),
                       ],
                       orElse: [
                         If(
@@ -1422,6 +1440,7 @@ class MimicSdReadPath extends BridgeModule {
                     // A stream. `done` does NOT pulse, because the state
                     // machine reads it as the end of the whole transfer
                     // and would take the card out of the data state.
+                    gapLeft < fullGap,
                     If(
                       goOnSame,
                       then: [
@@ -1433,7 +1452,6 @@ class MimicSdReadPath extends BridgeModule {
                         // next clock.
                         state < stateWait,
                         streamLeft < streamLeft - oneBlockCount,
-                        gapLeft < fullGap,
                       ],
                       orElse: [
                         // The chunk is spent. The card looks the next

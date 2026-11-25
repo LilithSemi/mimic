@@ -281,9 +281,10 @@ pub const Options = struct {
     /// cap beyond the room of the channel.
     ///
     /// The host does not say how long a stream is, so every block that
-    /// waits on the card when the host stops it is thrown away. The card
-    /// sends a block about ten times faster than USB delivers one, so a
-    /// few blocks in flight keep it busy.
+    /// waits on the card when the host stops it goes into the card cache
+    /// and may never be read. The card sends a block about ten times
+    /// faster than USB delivers one, so a few blocks in flight keep it
+    /// busy.
     stream_ahead_blocks: u8 = 0,
 };
 
@@ -369,8 +370,8 @@ pub const Stats = struct {
     /// The card asks for a chunk of blocks in one record and the host may
     /// stop the stream in the middle of that chunk. Every one of these is
     /// a chunk whose remaining blocks were never pushed, so the count is
-    /// the work the early stop saved. The blocks that DID go out under the
-    /// old tag are thrown away by the card.
+    /// the work the early stop saved. The blocks that DID go out behind the
+    /// first one are fills, so the card keeps them in its cache.
     streams_cut: u64 = 0,
     /// Chunks that were dropped because the card took no block of them
     /// within the poll limit and asked for nothing else.
@@ -385,15 +386,24 @@ pub const Stats = struct {
     /// Streams that stopped because the card left the data state.
     ///
     /// The host ends a stream with CMD12 and may send its next read much
-    /// later. Without this the loop pushed the rest of the chunk in that
-    /// gap, and the card threw every one of those blocks away.
+    /// later. A stream that is not the walk of an earlier one stops here,
+    /// because a host that moves elsewhere leaves every further block in
+    /// the cache for nobody.
     streams_aborted: u64 = 0,
     /// Times the host model was cleared because the card asked for a
     /// block the model said it held. See `CacheModel`.
     model_resets: u64 = 0,
+    /// Fills pushed behind a write, so that no stale fill of the block
+    /// stays in the card cache. See `Server.fenceWrite`.
+    write_fences: u64 = 0,
+
+    /// Blocks pushed into DATA_IN, answers and fills together.
+    pub fn pushed(self: Stats) u64 {
+        return self.blocks + self.fills;
+    }
 
     pub fn bytes(self: Stats) u64 {
-        return (self.blocks + self.fills) * sd.BLOCK_SIZE;
+        return self.pushed() * sd.BLOCK_SIZE;
     }
 };
 
@@ -432,6 +442,8 @@ const READ_AHEAD_SEQUENCE: u8 = 8;
 pub const CacheModel = struct {
     /// Lines the card has, or 0 while the model is off.
     lines: usize = 0,
+    /// True while the card reports a line count that the model cannot hold.
+    unmodeled: bool = false,
     /// The block each line holds, or `NO_BLOCK` for a line that holds
     /// none.
     blocks: [MODEL_LINES]u64 = @splat(NO_BLOCK),
@@ -451,7 +463,14 @@ pub const CacheModel = struct {
             lines <= MODEL_LINES and
             lines & (lines - 1) == 0;
         self.lines = if (usable) lines else 0;
+        self.unmodeled = reported != 0 and !usable;
         self.clear();
+    }
+
+    /// True when the card has a cache that this model cannot follow. A
+    /// write then cannot tell whether a stale fill is on its way.
+    pub fn mayHold(self: *const CacheModel, lba: u64) bool {
+        return self.unmodeled or self.holds(lba);
     }
 
     /// Forgets every line.
@@ -591,6 +610,13 @@ pub const Server = struct {
     last_read_end: u64 = NO_BLOCK,
     /// Length of the current run of consecutive read requests.
     sequential_reads: u8 = 0,
+    /// First block of the last stream record that `serveRead` served, or
+    /// `NO_BLOCK`. A stream record that starts after it and not after
+    /// `stream_front` is the same walk.
+    stream_from: u64 = NO_BLOCK,
+    /// The block after the last block of that stream that went into
+    /// DATA_IN.
+    stream_front: u64 = 0,
 
     /// A record this loop took off the card but has not answered yet.
     ///
@@ -882,6 +908,7 @@ pub const Server = struct {
             self.last_read_end = NO_BLOCK;
             self.sequential_reads = 0;
             self.ahead_owed = false;
+            self.stream_from = NO_BLOCK;
         }
         self.card_epoch = request.epoch;
 
@@ -939,15 +966,29 @@ pub const Server = struct {
         }
 
         // A record that asks for more than one block is a STREAM. The card
-        // reads such a chunk straight off the channel: it asks the cache
-        // for nothing and it writes no line for what it sends, because a
-        // stream reads each block once and a line it took would push out a
-        // line that a metadata read wants.
+        // takes the blocks of the chunk off the channel one after another,
+        // and it writes no line for a block that it sends.
         //
-        // The record of a stream IS the read ahead, so no fill rides
-        // behind it either. A fill sent there would be a block the card
-        // throws away.
+        // The host may stop the stream at any block. Every block of a
+        // stream is therefore a FILL: the card sends it when its address is
+        // the one the card waits for, and it writes it into the cache when
+        // the host did not use it. A host that starts its next CMD18 where
+        // this one stopped then hits those blocks.
+        //
+        // No block of a stream carries the tag of the record. The card
+        // accepts a block under the tag of its record at ANY place of the
+        // chunk, so a tagged block that arrives after a fill of the same
+        // address already answered the record would go out in the place of
+        // a later block. An address cannot be mistaken that way.
         const stream = request.blocks > 1;
+
+        // A stream that starts inside the blocks the last one pushed is the
+        // same walk. Only such a walk goes on pushing after the host stops
+        // it, because a host that reads another part of the image next
+        // leaves those blocks in the cache for nobody.
+        var sequential = self.stream_from != NO_BLOCK and
+            request.lba > self.stream_from and
+            request.lba <= self.stream_front;
 
         // The card asked for a block the model says it HOLDS. The card
         // does not evict a line by itself, so the store went away whole,
@@ -997,13 +1038,59 @@ pub const Server = struct {
         // stream. See `chunkContinues`.
         var lba: u64 = request.lba;
         var chunk_end: u64 = end;
-        var tag: u8 = request.seq;
+        // The tag of the block that the card waits for. The first block
+        // pushed after a record takes it.
+        var answer: ?u8 = request.seq;
+        var from: u64 = request.lba;
         var chunks: u16 = 0;
+        defer if (stream) {
+            self.stream_from = from;
+            self.stream_front = lba;
+        };
         // A stream holds the card in the data state until the host stops
         // it with CMD12. See `card_state_fresh` for why the read that gave
         // this record does not count.
         self.card_state_fresh = false;
-        while (lba < chunk_end) {
+        // A record that this call has read and not answered yet.
+        var next_record: ?Request = null;
+        while (next_record != null or lba < chunk_end) {
+            // A record that reached this call is one of two things, and
+            // `chunkContinues` tells them apart. It is the same walk going
+            // on, and the loop answers it here and keeps pushing: it costs
+            // no round trip, because the read that found it rode behind a
+            // push. Or it is a new read, and every block of this chunk that
+            // is left would go out for nobody.
+            //
+            // The blocks already pushed are safe either way. A block of the
+            // old chunk that is still on the channel is a fill, so the card
+            // writes it into the cache, and a block that carries the old
+            // tag is taken off and thrown away.
+            if (next_record) |record| {
+                next_record = null;
+                if (chunks >= self.options.max_stream_chunks or
+                    !self.chunkContinues(record, request, lba))
+                {
+                    self.held = record;
+                    self.stats.streams_cut += 1;
+                    return true;
+                }
+                chunks += 1;
+                self.stats.requests += 1;
+                self.stats.streams_continued += 1;
+                self.countLostRecords(.read_blocks, record.seq);
+                try self.traceRecord('c', record);
+                answer = record.seq;
+                from = record.lba;
+                sequential = true;
+                chunk_end = @as(u64, record.lba) + record.blocks;
+                // The walk goes on, so the read ahead window follows the
+                // stream the way the first chunk set it.
+                self.last_read_end = chunk_end;
+                self.ahead_from = chunk_end;
+                self.ahead_end = chunk_end;
+                continue;
+            }
+
             // A record must be answered, so this one waits for room. A
             // fill never does: see `appendReadAhead`.
             //
@@ -1014,7 +1101,7 @@ pub const Server = struct {
             // same round trip that asks for room also says whether the
             // card has taken a new read.
             if (stream) {
-                const found = self.awaitStreamSpace() catch |e| switch (e) {
+                const found = self.awaitStreamSpace(!sequential) catch |e| switch (e) {
                     Error.StreamAborted => {
                         self.stats.streams_aborted += 1;
                         return true;
@@ -1030,14 +1117,9 @@ pub const Server = struct {
                     },
                     else => return e,
                 };
-                if (found) |next_record| {
-                    // The chunk still owes blocks, so the card cannot have
-                    // taken the whole of it and cannot be asking for the
-                    // next one. This record is a new read. See
-                    // `chunkContinues`.
-                    self.held = next_record;
-                    self.stats.streams_cut += 1;
-                    return true;
+                if (found) |record| {
+                    next_record = record;
+                    continue;
                 }
             } else {
                 try self.awaitSpace(BLOCK_WORDS);
@@ -1050,11 +1132,14 @@ pub const Server = struct {
                 count < room and
                 self.batchFits(count + 1)) : (lba += 1)
             {
-                entries[count] = .{
-                    .lba = lba,
-                    .tag = tag,
-                    .model = !stream,
-                };
+                entries[count] = if (answer) |tag|
+                    if (stream)
+                        .{ .lba = lba, .tag = sd.DATA_TAG_FILL }
+                    else
+                        .{ .lba = lba, .tag = tag }
+                else
+                    .{ .lba = lba, .tag = sd.DATA_TAG_FILL };
+                answer = null;
                 count += 1;
             }
             // The wait above found room for one whole block, whichever
@@ -1069,63 +1154,23 @@ pub const Server = struct {
             }
 
             // A stream carries the status read BEHIND every push, in the
-            // same transaction, so it costs no round trip of its own. It
-            // pays for two things.
-            //
-            // The free space it reports is the space AFTER the card took
-            // these blocks, so the batch after this one never has to poll
-            // for room.
-            //
-            // A RECORD in it is one of two things, and `chunkContinues`
-            // tells them apart.
-            //
-            // The card asks for one CHUNK at a time. When the chunk runs
-            // out it looks the next block up and posts a record for the
-            // chunk after it, under a tag of its own. That record CARRIES
-            // ON the stream this call is already serving, so the loop
-            // takes it here and keeps pushing. It costs no round trip: the
-            // read that found it rode behind the push.
-            //
-            // Anything else is a new read. The host stopped this stream
-            // with CMD12 and started something else, so every block of
-            // this chunk that is left would be pushed for nobody.
-            //
-            // The blocks already pushed are safe either way. The card gave
-            // the new read a sequence tag of its own, so blocks of this
-            // chunk that are still on the channel carry the OLD tag, and
-            // the card takes each one off and throws it away.
+            // same transaction, so it costs no round trip of its own. The
+            // free space it reports is the space AFTER the card took these
+            // blocks, so the batch after this one never has to poll for
+            // room. A record in it is answered at the top of the loop.
             var status: [sd.STATUS_WORDS]u32 = undefined;
             try self.pushBatchStatus(entries[0..count], &status);
             if (status[sd.STATUS_REQ_COUNT] != 0) {
                 self.pop_owed = true;
-                const next_record = decodeRequest(.{
+                next_record = decodeRequest(.{
                     status[sd.STATUS_REQ],
                     status[sd.STATUS_REQ_HI],
                 });
-                if (chunks < self.options.max_stream_chunks and
-                    self.chunkContinues(next_record, request, lba, chunk_end))
-                {
-                    chunks += 1;
-                    self.stats.requests += 1;
-                    self.stats.streams_continued += 1;
-                    self.countLostRecords(.read_blocks, next_record.seq);
-                    try self.traceRecord('c', next_record);
-                    tag = next_record.seq;
-                    chunk_end = @as(u64, next_record.lba) + next_record.blocks;
-                    // The walk goes on, so the read ahead window follows
-                    // the stream the way the first chunk set it.
-                    self.last_read_end = chunk_end;
-                    self.ahead_from = chunk_end;
-                    self.ahead_end = chunk_end;
-                    continue;
-                }
-                self.held = next_record;
-                self.stats.streams_cut += 1;
-                return true;
+                continue;
             }
-            // No record yet, but the host stopped the stream. Every block
-            // still owed would go out for nobody.
-            if (self.streamEnded()) {
+            // No record yet, but the host stopped a stream that is not a
+            // walk. Every block still owed would go out for nobody.
+            if (!sequential and self.streamEnded()) {
                 self.stats.streams_aborted += 1;
                 return true;
             }
@@ -1135,21 +1180,19 @@ pub const Server = struct {
 
     /// True while `next` is the NEXT CHUNK of the stream this call serves.
     ///
-    /// The card asks for a stream one chunk at a time. It takes the blocks
-    /// of a chunk off the channel one by one, and only when the last of
-    /// them has gone does it look the next block up and post a record for
-    /// the chunk after it. Such a record is the same read going on, and
-    /// the loop must answer it and not read it as an abort.
+    /// The card asks for a stream one chunk at a time. It also posts a
+    /// record when a host starts a new CMD18 and the cache does not hold the
+    /// block it names. Such a record is the same walk going on when it names
+    /// the next block that this call has not pushed, and the loop must
+    /// answer it and not read it as an abort.
     ///
-    /// Three things must hold, and each rules out a different mistake.
+    /// Two things must hold, and each rules out a different mistake.
     ///
-    /// The chunk this call serves owes NOTHING more (`lba` has reached
-    /// `end`). While it still owes blocks the card cannot have taken the
-    /// whole chunk, so it cannot be asking for the next one, and a record
-    /// there is a read the host started after it stopped this one.
-    ///
-    /// The record starts EXACTLY where this chunk ends. A read that starts
-    /// anywhere else is another read, whatever else it looks like.
+    /// The record starts EXACTLY at `lba`, the next block this call would
+    /// push. A read that starts earlier names a block that went out
+    /// already, and the card may have used it without keeping it, so that
+    /// read gets a full answer of its own. A read that starts later is
+    /// another read.
     ///
     /// The record is a READ of MORE than one block from the SAME card
     /// generation. A single block read is a CMD17 and never the chunk of a
@@ -1165,10 +1208,8 @@ pub const Server = struct {
         next: Request,
         request: Request,
         lba: u64,
-        end: u64,
     ) bool {
-        if (lba != end) return false;
-        if (next.lba != end) return false;
+        if (next.lba != lba) return false;
         if (next.op != @intFromEnum(RequestOp.read_blocks)) return false;
         if (next.blocks <= 1) return false;
         if (next.epoch != request.epoch) return false;
@@ -1350,6 +1391,12 @@ pub const Server = struct {
         // then does with the block, so the model drops it here and not on
         // the success path. A line that the model kept would hold the
         // bytes from before the write and no fill would ever replace it.
+        //
+        // The card does that at the start of the write, so a fill of this
+        // block that was still on the channel, or that the card took in
+        // while the host sent the block, is not covered. A model that holds
+        // the block says such a fill may exist. See `fenceWrite`.
+        const fenced = op == .write_blocks and self.cache.mayHold(request.lba);
         self.cache.remove(request.lba);
 
         const in_range = switch (op) {
@@ -1376,11 +1423,26 @@ pub const Server = struct {
         const kept = op == .write_blocks and write_error == null;
         if (kept) self.stats.written += 1 else self.stats.dropped += 1;
 
+        // The host cannot read the block before the acknowledgement, so the
+        // fence runs in front of it. A fence that fails leaves a block in
+        // the card cache that this code cannot vouch for, so the write
+        // fails and the host knows.
+        var fence_error: ?anyerror = null;
+        if (kept and fenced) self.fenceWrite(request.lba) catch |err| {
+            fence_error = err;
+        };
+
         // The acknowledgement goes out BEFORE the log line, because the
         // card holds the host busy until it arrives. A log writer that
         // fails must not keep the host waiting for a block that this code
         // already took.
-        try self.ackWrite(request.seq, write_error != null);
+        try self.ackWrite(request.seq, write_error != null or fence_error != null);
+        if (fence_error) |err| {
+            try self.refuse("write of block {d} could not fence the cache: {s}", .{
+                request.lba,
+                @errorName(err),
+            });
+        }
 
         if (op == .write_discard) {
             try self.refuse(
@@ -1458,6 +1520,47 @@ pub const Server = struct {
         var value: u32 = seq;
         if (failed) value |= sd.WRITE_ACK_FAIL;
         try self.csrWrite(sd.REG_WRITE_ACK, value);
+    }
+
+    /// Makes sure that the card cache holds no stale copy of `lba` after the
+    /// write of that block.
+    ///
+    /// The card invalidates the line when the write starts. A fill of the
+    /// block that this code pushed BEFORE it wrote the image holds the old
+    /// bytes, and the card may take it into the cache after the
+    /// invalidation: the fill can wait on the channel, and the card takes
+    /// one while the host sends the block.
+    ///
+    /// The channel keeps its order, so a fill that this code pushes now, with
+    /// the bytes just written, lands behind every stale one and replaces
+    /// it. The wait for the channel to empty then proves that the card has
+    /// taken all of them. The acknowledgement follows, and the host cannot
+    /// read the block before it.
+    fn fenceWrite(self: *Server, lba: u64) !void {
+        try self.awaitSpace(BLOCK_WORDS);
+        const fill = [_]PushEntry{.{ .lba = lba, .tag = sd.DATA_TAG_FILL }};
+        try self.pushBatch(&fill);
+        try self.awaitDrain();
+        self.stats.write_fences += 1;
+    }
+
+    /// Waits until the card has taken every block off DATA_IN.
+    ///
+    /// DATA_IN_COUNT reports the free words, and it can only report fewer
+    /// than the channel has, so a full count says the channel is empty.
+    fn awaitDrain(self: *Server) !void {
+        var polls: u32 = 0;
+        while (polls < self.options.space_poll_limit) : (polls += 1) {
+            self.credit_words = try self.csrRead(sd.REG_DATA_IN_COUNT);
+            if (self.credit_words >= self.channel_words) return;
+            if (self.options.space_poll_wait_us != 0) {
+                self.image.io.sleep(
+                    Io.Duration.fromMicroseconds(self.options.space_poll_wait_us),
+                    .awake,
+                ) catch {};
+            }
+        }
+        return Error.DataInFull;
     }
 
     /// Pushes a batch of blocks into DATA_IN in ONE transport transaction.
@@ -1655,6 +1758,10 @@ pub const Server = struct {
     /// The read POPS, so a record it returns is already off the card and
     /// the caller MUST answer it.
     ///
+    /// A card that left the data state ends the stream with
+    /// `Error.StreamAborted` while `abortable` is true. A walk is not
+    /// abortable: the fills that it pushes after CMD12 go into the cache.
+    ///
     /// A poll limit that runs out with NO record ABANDONS the chunk, and
     /// `Error.DataInFull` says so to the caller.
     ///
@@ -1680,8 +1787,8 @@ pub const Server = struct {
         return self.card_state_fresh and !self.card_in_data;
     }
 
-    fn awaitStreamSpace(self: *Server) !?Request {
-        if (self.streamEnded()) return Error.StreamAborted;
+    fn awaitStreamSpace(self: *Server, abortable: bool) !?Request {
+        if (abortable and self.streamEnded()) return Error.StreamAborted;
         if (self.streamRoom() > 0) return null;
         var polls: u32 = 0;
         defer {
@@ -1700,7 +1807,7 @@ pub const Server = struct {
                     status[sd.STATUS_REQ_HI],
                 });
             }
-            if (self.streamEnded()) return Error.StreamAborted;
+            if (abortable and self.streamEnded()) return Error.StreamAborted;
             if (self.streamRoom() > 0) {
                 polls += 1;
                 return null;
@@ -1755,6 +1862,14 @@ const FakeDevice = struct {
     /// this is how a test says that the channel filled up. A read ahead
     /// that found no room must push nothing and must not wait.
     space_words_later: ?u32 = null,
+    /// Single reads of DATA_IN_COUNT that report one block less than
+    /// `space_words`, before the reads report the whole of it. It is a card
+    /// that still holds a block on the channel.
+    busy_space_reads: usize = 0,
+    /// The blocks pushed and the reads of DATA_IN_COUNT at the moment of
+    /// the last WRITE_ACK. They show what came before the acknowledgement.
+    tags_len_at_ack: usize = 0,
+    space_reads_at_ack: usize = 0,
     ctrl: u32 = 0,
     num_blocks: u32 = 0,
     /// Words pushed to DATA_IN, in order.
@@ -1843,6 +1958,8 @@ const FakeDevice = struct {
             },
             sd.REG_WRITE_ACK => {
                 if (self.acks_len == self.acks.len) return error.FakeAckOverflow;
+                self.tags_len_at_ack = self.tags_len;
+                self.space_reads_at_ack = self.space_reads;
                 self.acks[self.acks_len] = value;
                 self.acks_len += 1;
             },
@@ -1863,6 +1980,10 @@ const FakeDevice = struct {
             sd.REG_CACHE_LINES => 128,
             sd.REG_DATA_IN_COUNT => blk: {
                 self.space_reads += 1;
+                if (self.busy_space_reads > 0) {
+                    self.busy_space_reads -= 1;
+                    break :blk self.space_words - @as(u32, BLOCK_WORDS);
+                }
                 if (self.space_reads > 1) {
                     if (self.space_words_later) |later| break :blk later;
                 }
@@ -2368,7 +2489,7 @@ test "a multi block request serves consecutive blocks in one record" {
     var server: Server = .{ .device = fake.device(), .image = image };
 
     _ = try server.servePending();
-    try std.testing.expectEqual(@as(u64, 3), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 3), server.stats.pushed());
 
     var got: [3 * sd.BLOCK_SIZE]u8 = undefined;
     const bytes = fake.pushedBytes(&got);
@@ -2568,7 +2689,7 @@ test "the FIFO credit is spent before DATA_IN_COUNT is read again" {
     var server: Server = .{ .device = fake.device(), .image = image };
 
     _ = try server.servePending();
-    try std.testing.expectEqual(@as(u64, 4), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 4), server.stats.pushed());
     try std.testing.expectEqual(@as(usize, 2), fake.space_reads);
     try std.testing.expectEqual(@as(u64, 0), server.stats.space_polls);
     // Two transactions in all: the status read of the pass and the one
@@ -2576,25 +2697,28 @@ test "the FIFO credit is spent before DATA_IN_COUNT is read again" {
     try std.testing.expectEqual(@as(u64, 2), server.stats.round_trips);
 }
 
-test "a stream record pushes every block under the one tag of the record" {
+test "a stream record answers with fills only" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try writePatternImage(tmp.dir, "card.img", 32);
     const image = try openTestImage(tmp.dir, "card.img", 32, false);
     defer image.file.close(std.testing.io);
 
-    // One record for eight blocks is what CMD18 posts. The card counts the
-    // blocks of the chunk against ONE sequence tag, so every block of the
-    // chunk must carry that tag and no other.
-    const request: Request = .{ .op = 0x01, .blocks = 8, .lba = 0, .seq = 7 };
+    // One record for eight blocks is what CMD18 posts. The host may stop
+    // at any block, so every block is a fill with its own address: a block
+    // the host does not read goes into the card cache, and no block can be
+    // taken for another one by its tag.
+    const request: Request = .{ .op = 0x01, .blocks = 8, .lba = 4, .seq = 7 };
     var fake: FakeDevice = .{ .req = &request.words(), .req_count = 1 };
     var server: Server = .{ .device = fake.device(), .image = image };
 
     _ = try server.servePending();
-    try std.testing.expectEqual(@as(u64, 8), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 0), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 8), server.stats.fills);
     try std.testing.expectEqual(@as(usize, 8), fake.tags_len);
-    for (fake.tags[0..fake.tags_len]) |tag| {
-        try std.testing.expectEqual(@as(u8, 7), tag);
+    for (0..8) |i| {
+        try std.testing.expectEqual(sd.DATA_TAG_FILL, fake.tags[i]);
+        try std.testing.expectEqual(@as(?u32, @intCast(4 + i)), fake.fills[i]);
     }
     // One status read of the pass, then one transaction for each batch of
     // the chunk. A record for each block would have cost three
@@ -2603,24 +2727,23 @@ test "a stream record pushes every block under the one tag of the record" {
     try std.testing.expectEqual(@as(u64, 1 + pushes), server.stats.round_trips);
 }
 
-test "a stream leaves the host cache model alone" {
+test "a stream puts every block it pushes in the host model" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try writePatternImage(tmp.dir, "card.img", 32);
     const image = try openTestImage(tmp.dir, "card.img", 32, false);
     defer image.file.close(std.testing.io);
 
-    // The card writes no cache line for a block of a stream, so a model
-    // that claimed one would skip a fill the card needs.
+    // The fills may land in the cache, and a write must know about them.
     const request: Request = .{ .op = 0x01, .blocks = 4, .lba = 0, .seq = 1 };
     var fake: FakeDevice = .{ .req = &request.words(), .req_count = 1 };
     var server: Server = .{ .device = fake.device(), .image = image };
     server.cache.configure(128);
 
     _ = try server.servePending();
-    try std.testing.expectEqual(@as(u64, 4), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 4), server.stats.pushed());
     for (0..4) |lba| {
-        try std.testing.expect(!server.cache.holds(lba));
+        try std.testing.expect(server.cache.isPending(lba));
     }
 
     // A SINGLE block record still puts its block in the model, because the
@@ -2664,7 +2787,7 @@ test "a record that lands mid stream stops the stream and is answered next" {
     var server: Server = .{ .device = fake.device(), .image = image };
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
-    try std.testing.expectEqual(batch, server.stats.blocks);
+    try std.testing.expectEqual(batch, server.stats.pushed());
     try std.testing.expectEqual(@as(u64, 1), server.stats.streams_cut);
     try std.testing.expect(server.held != null);
     try std.testing.expectEqual(@as(u32, 40), server.held.?.lba);
@@ -2675,7 +2798,7 @@ test "a record that lands mid stream stops the stream and is answered next" {
     // transaction that carries its own status read.
     const before = server.stats.round_trips;
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
-    try std.testing.expectEqual(batch + 2 * batch, server.stats.blocks);
+    try std.testing.expectEqual(batch + 2 * batch, server.stats.pushed());
     try std.testing.expectEqual(@as(u64, 2), server.stats.round_trips - before);
 }
 
@@ -2699,7 +2822,7 @@ test "the stream ahead cap splits a chunk into smaller pushes" {
         };
         server.channel_words = fake.space_words;
         try std.testing.expectEqual(@as(u32, 1), try server.servePending());
-        try std.testing.expectEqual(@as(u64, 8), server.stats.blocks);
+        try std.testing.expectEqual(@as(u64, 8), server.stats.pushed());
         pushes[i] = server.stats.round_trips;
     }
     try std.testing.expectEqual(pushes[0] + 1, pushes[1]);
@@ -2725,7 +2848,7 @@ test "a stream stops when the card leaves the data state" {
     var server: Server = .{ .device = fake.device(), .image = image };
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
-    try std.testing.expectEqual(batch, server.stats.blocks);
+    try std.testing.expectEqual(batch, server.stats.pushed());
     try std.testing.expectEqual(@as(u64, 1), server.stats.streams_aborted);
     try std.testing.expectEqual(@as(u64, 0), server.stats.streams_cut);
     try std.testing.expect(server.held == null);
@@ -2758,7 +2881,7 @@ test "the next chunk of a stream carries on in place and costs no poll" {
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     // Both chunks went out in ONE call, so nothing was cut.
-    try std.testing.expectEqual(@as(u64, 8), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 8), server.stats.pushed());
     try std.testing.expectEqual(@as(u64, 1), server.stats.streams_continued);
     try std.testing.expectEqual(@as(u64, 0), server.stats.streams_cut);
     try std.testing.expect(server.held == null);
@@ -2766,12 +2889,127 @@ test "the next chunk of a stream carries on in place and costs no poll" {
     try std.testing.expectEqual(@as(u64, 2), server.stats.requests);
     try std.testing.expectEqual(@as(u64, 0), server.stats.records_lost);
 
-    // The blocks of each chunk carry the tag of the record that asked for
-    // them. A block of the second chunk under the first tag would be
-    // thrown away by the card and the host would wait out the timeout.
+    // Every block is a fill with the address of the block, in order.
     try std.testing.expectEqual(@as(usize, 8), fake.tags_len);
-    for (fake.tags[0..4]) |tag| try std.testing.expectEqual(@as(u8, 1), tag);
-    for (fake.tags[4..8]) |tag| try std.testing.expectEqual(@as(u8, 2), tag);
+    for (0..8) |i| {
+        try std.testing.expectEqual(sd.DATA_TAG_FILL, fake.tags[i]);
+        try std.testing.expectEqual(@as(?u32, @intCast(i)), fake.fills[i]);
+    }
+}
+
+test "a record at the next block of a chunk that is not done carries the stream on" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 128);
+    const image = try openTestImage(tmp.dir, "card.img", 128, false);
+    defer image.file.close(std.testing.io);
+
+    // A host that stops a stream and starts the next one where it stopped
+    // gets the blocks the card cache holds. The cache misses at the first
+    // block that went out too late, and that block is exactly the next one
+    // this call has not pushed. The record is the same walk, so the loop
+    // answers it in place and sends no block twice.
+    const chunk: u16 = 2 * PUSH_BATCH_BLOCKS;
+    const batch: u64 = PUSH_BATCH_BLOCKS;
+    const first = (Request{ .op = 0x01, .blocks = chunk, .lba = 0, .seq = 1 }).words();
+    const next = (Request{ .op = 0x01, .blocks = chunk, .lba = batch, .seq = 2 }).words();
+    const script = [_]u32{ first[0], first[1], next[0], next[1] };
+    var fake: FakeDevice = .{
+        .req = &script,
+        .req_count = 1,
+        .req_count_later = 1,
+    };
+    var server: Server = .{ .device = fake.device(), .image = image };
+
+    try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try std.testing.expectEqual(@as(u64, 1), server.stats.streams_continued);
+    try std.testing.expectEqual(@as(u64, 0), server.stats.streams_cut);
+    // The first batch, then the whole second chunk, and no block twice.
+    try std.testing.expectEqual(batch + chunk, server.stats.pushed());
+    var seen: [128]u8 = @splat(0);
+    for (fake.fills[0..fake.tags_len]) |fill| {
+        seen[fill.?] += 1;
+    }
+    for (seen[0 .. batch + chunk]) |count| {
+        try std.testing.expectEqual(@as(u8, 1), count);
+    }
+}
+
+test "every block that a stream pushes carries the data of the address it is tagged with" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 128);
+    const image = try openTestImage(tmp.dir, "card.img", 128, false);
+    defer image.file.close(std.testing.io);
+
+    // A first record, a record at the frontier that carries the stream on,
+    // and a record elsewhere that cuts it and is answered by the next pass.
+    const first = (Request{ .op = 0x01, .blocks = 32, .lba = 0, .seq = 1 }).words();
+    const carry = (Request{ .op = 0x01, .blocks = 32, .lba = 16, .seq = 2 }).words();
+    const cut = (Request{ .op = 0x01, .blocks = 8, .lba = 40, .seq = 3 }).words();
+    const script = [_]u32{ first[0], first[1], carry[0], carry[1], cut[0], cut[1] };
+    var fake: FakeDevice = .{
+        .req = &script,
+        .req_count = 1,
+        .req_count_later = 1,
+    };
+    var server: Server = .{ .device = fake.device(), .image = image };
+    server.cache.configure(128);
+
+    try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try std.testing.expect(server.held != null);
+    try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try std.testing.expectEqual(@as(u64, 40), server.stats.pushed());
+
+    // A fill carries the address that it names. Every block must hold the
+    // bytes of that address and of no other.
+    for (0..fake.tags_len) |i| {
+        const lba: u64 = fake.fills[i].?;
+        var want: [sd.BLOCK_SIZE]u8 = undefined;
+        patternBlock(lba, &want);
+        var got: [sd.BLOCK_SIZE]u8 = undefined;
+        for (fake.pushed[i * BLOCK_WORDS ..][0..BLOCK_WORDS], 0..) |word, w| {
+            std.mem.writeInt(u32, got[w * 4 ..][0..4], word, .little);
+        }
+        try std.testing.expectEqualSlices(u8, &want, &got);
+    }
+}
+
+test "a walk goes on pushing after the host stops it and a first stream does not" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 256);
+    const image = try openTestImage(tmp.dir, "card.img", 256, false);
+    defer image.file.close(std.testing.io);
+
+    // The fake reports the card out of the data state once a batch is
+    // pushed, which is a host that sent CMD12.
+    const chunk: u16 = 2 * PUSH_BATCH_BLOCKS;
+    const batch: u64 = PUSH_BATCH_BLOCKS;
+    const first = (Request{ .op = 0x01, .blocks = chunk, .lba = 0, .seq = 1 }).words();
+    var fake: FakeDevice = .{
+        .req = &first,
+        .req_count = 1,
+        .abort_after_blocks = PUSH_BATCH_BLOCKS,
+    };
+    var server: Server = .{ .device = fake.device(), .image = image };
+    try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try std.testing.expectEqual(batch, server.stats.pushed());
+    try std.testing.expectEqual(@as(u64, 1), server.stats.streams_aborted);
+    try std.testing.expectEqual(batch, server.stream_front);
+
+    // The next record starts inside what the first one pushed, after its
+    // first block: the same walk. It pushes the whole chunk.
+    const second = (Request{ .op = 0x01, .blocks = chunk, .lba = 10, .seq = 2 }).words();
+    var again: FakeDevice = .{
+        .req = &second,
+        .req_count = 1,
+        .abort_after_blocks = PUSH_BATCH_BLOCKS,
+    };
+    server.device = again.device();
+    try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try std.testing.expectEqual(batch + chunk, server.stats.pushed());
+    try std.testing.expectEqual(@as(u64, 1), server.stats.streams_aborted);
 }
 
 test "a record that starts elsewhere still cuts the stream, even at a chunk end" {
@@ -2799,7 +3037,7 @@ test "a record that starts elsewhere still cuts the stream, even at a chunk end"
     var server: Server = .{ .device = fake.device(), .image = image };
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
-    try std.testing.expectEqual(@as(u64, 4), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 4), server.stats.pushed());
     try std.testing.expectEqual(@as(u64, 0), server.stats.streams_continued);
     try std.testing.expectEqual(@as(u64, 1), server.stats.streams_cut);
     try std.testing.expect(server.held != null);
@@ -2832,13 +3070,13 @@ test "a single block record at the chunk end is held and not carried on" {
     server.cache.configure(128);
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
-    try std.testing.expectEqual(@as(u64, 4), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 4), server.stats.pushed());
     try std.testing.expectEqual(@as(u64, 0), server.stats.streams_continued);
     try std.testing.expectEqual(@as(u64, 1), server.stats.streams_cut);
     try std.testing.expect(server.held != null);
     try std.testing.expectEqual(@as(u32, 4), server.held.?.lba);
-    // The stream wrote no line, so the model still holds nothing.
-    try std.testing.expect(!server.cache.holds(0));
+    // The stream pushed its blocks as fills, so the model holds them.
+    try std.testing.expect(server.cache.holds(0));
 }
 
 test "a poll of an empty request channel writes no pop" {
@@ -2975,7 +3213,7 @@ test "a read only image serves blocks and its bytes never change" {
     var fake: FakeDevice = .{ .req = &request.words(), .req_count = 1 };
     var server: Server = .{ .device = fake.device(), .image = image };
     _ = try server.servePending();
-    try std.testing.expectEqual(@as(u64, 8), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 8), server.stats.pushed());
 
     // Read the whole file back through a second handle. A serve loop that
     // wrote anything would show here.
@@ -3149,16 +3387,19 @@ test "every block goes out under the tag of the record it answers" {
     var server: Server = .{ .device = fake.device(), .image = image };
 
     try std.testing.expectEqual(@as(u32, 2), try server.servePending());
-    try std.testing.expectEqual(@as(u64, 4), server.stats.blocks);
+    try std.testing.expectEqual(@as(u64, 4), server.stats.pushed());
 
-    // One tag per block, and every block of a record carries the tag of
-    // that record.
+    // A single block record is answered under its tag. Every block of a
+    // stream is a fill with its own address.
     try std.testing.expectEqual(@as(usize, 4), fake.tags_len);
     try std.testing.expectEqualSlices(
         u8,
-        &[_]u8{ 200, 201, 201, 201 },
+        &[_]u8{ 200, sd.DATA_TAG_FILL, sd.DATA_TAG_FILL, sd.DATA_TAG_FILL },
         fake.tags[0..fake.tags_len],
     );
+    try std.testing.expectEqual(@as(?u32, 20), fake.fills[1]);
+    try std.testing.expectEqual(@as(?u32, 21), fake.fills[2]);
+    try std.testing.expectEqual(@as(?u32, 22), fake.fills[3]);
 }
 
 test "a refused record pushes no block and writes no tag" {
@@ -3871,14 +4112,118 @@ test "a write drops the block it names from the host model" {
     };
     var server: Server = .{ .device = fake.device(), .image = image };
     try server.learnCache();
-    server.cache.insert(3);
     server.cache.insert(4);
 
     try std.testing.expectEqual(@as(u32, 1), try server.servePending());
     // The card invalidates the line that CMD24 names, so the model must
-    // drop the same one and no other.
+    // drop the same one and no other. The model did not hold block 3, so
+    // no stale fill of it can exist and nothing is pushed.
     try std.testing.expect(!server.cache.holds(3));
     try std.testing.expect(server.cache.holds(4));
+    try std.testing.expectEqual(@as(usize, 0), fake.tags_len);
+    try std.testing.expectEqual(@as(u64, 0), server.stats.write_fences);
+}
+
+test "a write to a block that may hold a fill pushes the new bytes and waits before the ack" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 16);
+    const image = try openTestImage(tmp.dir, "card.img", 16, false);
+    defer image.file.close(std.testing.io);
+
+    // The model says that a fill of block 3 was pushed, so the card may take
+    // the old bytes of it into the cache after it invalidated the line. The
+    // write must push the new bytes as a fill behind it, wait until the
+    // card took every block off the channel, and only then acknowledge.
+    const request: Request = .{ .op = 0x02, .blocks = 1, .lba = 3, .seq = 9 };
+    const words = channelBlock(0xAA, 0xBB, 0xCC);
+    var fake: FakeDevice = .{
+        .req = &request.words(),
+        .req_count = 1,
+        .data_out = &words,
+        .space_words = 4 * BLOCK_WORDS,
+        .busy_space_reads = 2,
+    };
+    var server: Server = .{ .device = fake.device(), .image = image };
+    try server.learnCache();
+    server.channel_words = 4 * BLOCK_WORDS;
+    server.cache.insertPending(3);
+
+    try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try std.testing.expectEqual(@as(u64, 1), server.stats.write_fences);
+
+    // One fill, with the address of the block and the bytes that the write
+    // put in the image.
+    try std.testing.expectEqual(@as(usize, 1), fake.tags_len);
+    try std.testing.expectEqual(sd.DATA_TAG_FILL, fake.tags[0]);
+    try std.testing.expectEqual(@as(?u32, 3), fake.fills[0]);
+    try std.testing.expectEqual(@as(u32, 0xAA), fake.pushed[0]);
+    try std.testing.expectEqual(@as(u32, 0xBB), fake.pushed[1]);
+    try std.testing.expectEqual(@as(u32, 0xCC), fake.pushed[2]);
+
+    // The push is in front of the acknowledgement, and the loop read the
+    // free space until the channel was empty before it sent it.
+    try std.testing.expectEqual(@as(usize, 1), fake.acks_len);
+    try std.testing.expectEqual(@as(u32, 9), fake.acks[0]);
+    try std.testing.expectEqual(@as(usize, 1), fake.tags_len_at_ack);
+    try std.testing.expect(fake.space_reads_at_ack >= 4);
+    try std.testing.expect(server.cache.isPending(3));
+}
+
+test "a write fence that the card never drains fails the write" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 16);
+    const image = try openTestImage(tmp.dir, "card.img", 16, false);
+    defer image.file.close(std.testing.io);
+
+    // A card that takes no block off the channel leaves a fill that this
+    // code cannot vouch for, so the host must hear that the write failed.
+    const request: Request = .{ .op = 0x02, .blocks = 1, .lba = 3, .seq = 9 };
+    const words = channelBlock(0xAA, 0xBB, 0xCC);
+    var fake: FakeDevice = .{
+        .req = &request.words(),
+        .req_count = 1,
+        .data_out = &words,
+        .space_words = 4 * BLOCK_WORDS,
+        .busy_space_reads = 1000,
+    };
+    var server: Server = .{
+        .device = fake.device(),
+        .image = image,
+        .options = .{ .space_poll_limit = 4 },
+    };
+    try server.learnCache();
+    server.channel_words = 4 * BLOCK_WORDS;
+    server.cache.insertPending(3);
+
+    try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try std.testing.expectEqual(@as(usize, 1), fake.acks_len);
+    try std.testing.expect(fake.acks[0] & sd.WRITE_ACK_FAIL != 0);
+    try std.testing.expectEqual(@as(u64, 1), server.stats.refused);
+    try std.testing.expectEqual(@as(u64, 0), server.stats.write_fences);
+}
+
+test "a card with a cache that the model cannot follow fences every write" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writePatternImage(tmp.dir, "card.img", 16);
+    const image = try openTestImage(tmp.dir, "card.img", 16, false);
+    defer image.file.close(std.testing.io);
+
+    const request: Request = .{ .op = 0x02, .blocks = 1, .lba = 5, .seq = 2 };
+    const words = channelBlock(0x11, 0x22, 0x33);
+    var fake: FakeDevice = .{
+        .req = &request.words(),
+        .req_count = 1,
+        .data_out = &words,
+    };
+    var server: Server = .{ .device = fake.device(), .image = image };
+    server.cache.configure(4096);
+
+    try std.testing.expectEqual(@as(u32, 1), try server.servePending());
+    try std.testing.expectEqual(@as(u64, 1), server.stats.write_fences);
+    try std.testing.expectEqual(@as(?u32, 5), fake.fills[0]);
 }
 
 test "a record for a block the model claims clears the whole model" {

@@ -309,7 +309,9 @@ void main() {
     for (final word in secondWords.skip(16)) {
       await wbWrite(b, MimicReg.dataIn, word);
     }
-    final gotSecond = await b.host.receiveDataBlock(timeoutClocks: 400);
+    final gotSecond = await b.host.receiveDataBlock(
+      timeoutClocks: _gapTimeoutClocks,
+    );
     expect(gotSecond.timedOut, isFalse, reason: 'the block never came.');
     expect(gotSecond.crcOk, isTrue, reason: 'the block has a bad CRC16.');
     expect(gotSecond.bytes, second, reason: 'the block has wrong bytes.');
