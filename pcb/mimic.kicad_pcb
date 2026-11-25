@@ -18030,7 +18030,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "NCP115-2.5"
+		(property "Value" "TPS7A0325"
 			(at 0 -1.5 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -18071,7 +18071,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Mfg" "onsemi"
+		(property "Mfg" "Texas Instruments"
 			(at 0 0 0)
 			(layer "B.SilkS")
 			(hide yes)
@@ -18084,11 +18084,24 @@
 				(justify mirror)
 			)
 		)
-		(property "PN" "NCP115CMX250TCG"
+		(property "PN" "TPS7A0325DQNR3"
 			(at 0 0 0)
 			(layer "B.SilkS")
 			(hide yes)
 			(uuid "351e054f-845a-4694-ba2c-35aefb46ad99")
+			(effects
+				(font
+					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "LCSC" "C3752459"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "6d2f4c1e-8a3b-4e5f-9c7d-1b2a3c4d5e6f")
 			(effects
 				(font
 					(size 1.27 1.27)

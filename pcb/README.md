@@ -59,7 +59,7 @@ ball J16 (PCLKT2_1).
 ### 1.8 V rail
 
 U15 is a TPS7A2018 1.8 V LDO (VIN 1.6 V to 6.0 V). It uses the same
-footprint, pinout and enable net as the 2.5 V NCP115 LDO (U10). Its input
+footprint, pinout and enable net as the 2.5 V TPS7A0325 LDO (U10). Its input
 is VSYS (USB VBUS, 5 V), so the
 1.8 V rail does not wait for the 3.3 V rail. C89 (4.7 uF) is on the VSYS input
 and C90 (4.7 uF) is on the 1.8 V output. The PHY is the only load on this
