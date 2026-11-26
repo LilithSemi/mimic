@@ -117,11 +117,11 @@
     },
     "nixpkgs_3": {
       "locked": {
-        "lastModified": 1784596106,
-        "narHash": "sha256-a6PjxOSs6cwiRpe3dpHdfu9RBSZiKBIE7Sba8GzBLUE=",
+        "lastModified": 1795621024,
+        "narHash": "sha256-lmdJelFR6D1dCc5Amsg9hN3OsruWYcy7RLVneOwRto8=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "c2b4dd086cfddacf79cd1394f72c9ef9906dfd9b",
+        "rev": "c589d36d2e568971ced3c50fd510f22e0d160e33",
         "type": "github"
       },
       "original": {
@@ -187,11 +187,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1784369104,
-        "narHash": "sha256-47cxbcZODibHv3rELFQ9vZly0vUNkND/atn/U7HLeb0=",
+        "lastModified": 1795615686,
+        "narHash": "sha256-/C0FK2Fwq0aWE/GADYyYbAIdQeGfYBbWMin3tfks1NA=",
         "owner": "numtide",
         "repo": "treefmt-nix",
-        "rev": "df3c0640565d04a0261253cdd89fce78ec50168a",
+        "rev": "b7b56d3c8833016c650ca542b1230e6130299741",
         "type": "github"
       },
       "original": {
@@ -207,11 +207,11 @@
         "treefmt-nix": "treefmt-nix_3"
       },
       "locked": {
-        "lastModified": 1784824129,
-        "narHash": "sha256-ktSXIrJZHVcvLJIx6s8LvlXrhSTlEIfaKsQV+I3HB8Y=",
+        "lastModified": 1795664303,
+        "narHash": "sha256-dbWJ/wbJ1Dd9IqOLc8Sldd0FCxt0EXnTjjMnlyvBQjc=",
         "ref": "refs/heads/master",
-        "rev": "87d54d5d51d5efc14f37289a6bb381ac5572011b",
-        "revCount": 16,
+        "rev": "f75402f8843531436ff4c3ad67d703e70eafc928",
+        "revCount": 18,
         "type": "git",
         "url": "https://git.lilithsemi.com/LilithSemi/zippy"
       },
