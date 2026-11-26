@@ -3,7 +3,6 @@
   lib,
   stdenvNoCC,
   mkShell,
-  gerbv,
   kicad,
 }:
 
@@ -49,10 +48,7 @@ stdenvNoCC.mkDerivation {
 
   passthru.shell = mkShell {
     name = "mimic-pcb-dev-shell";
-    packages = [
-      gerbv
-      kicad
-    ];
+    packages = [ kicad ];
   };
 
   meta = {
